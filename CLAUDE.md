@@ -34,8 +34,9 @@ The mbox is never loaded whole into memory. The indexer records each message's
 | `reader.py` | mbox bytes → `email.EmailMessage`: `iter_message_spans`, `read_message`, `iter_attachments`, `get_display_body`, `parse_labels` | the mbox file |
 | `extract.py` | attachment bytes → text: `extract_text` (pdf/docx/text), `html_to_text` | pypdf, python-docx |
 | `sanitize.py` | unsafe email HTML → safe HTML: `sanitize_html` | bleach[css] |
-| `indexer.py` | orchestrate scan → store: `build_index`, `index_is_current` | reader, extract, store |
-| `api.py` | FastAPI app + routes: `create_app`, `_render_body`, `_content_disposition` | store, reader, sanitize, indexer |
+| `status.py` | thread-safe `IndexStatus` progress holder (read by `/api/status`) | — |
+| `indexer.py` | orchestrate scan → store: `build_index` (calls `progress(count, bytes_done)`), `index_is_current` | reader, extract, store |
+| `api.py` | FastAPI app + routes: `create_app(index_in_background=True)`, `/api/status`, `_render_body`, `_content_disposition(inline=)` | store, reader, sanitize, indexer, status |
 | `main.py` | uvicorn entrypoint | config, api |
 | `static/` | `index.html`, `style.css`, `app.js` — vanilla JS, no build step | the API |
 
@@ -81,6 +82,23 @@ keep it that way.
    `>From ` → `From ` (removes exactly one `>`). Google Takeout is mboxrd format.
 6. **`index_is_current`** compares stored `source_size` + integer `source_mtime`
    against the live file. A changed file triggers a full re-index on next start.
+7. **Concurrency model (background indexing).** When the index is stale, `create_app`
+   indexes on a **daemon thread** and serves immediately; when current, it serves at
+   once. `Store` uses **thread-local connections** (`store.conn` is a per-thread
+   property) so the indexer thread (writer) and request threads (readers) never share a
+   connection — WAL + `busy_timeout` make concurrent read+write safe, and readers see
+   results fill in as the indexer commits. `store.create_schema()` MUST stay
+   synchronous in `create_app` before the thread spawns (see the comment there).
+   Progress flows `build_index(progress=status.update)` → `IndexStatus` →
+   `GET /api/status`; the frontend polls it for the status bar. `IndexStatus.fail`
+   (and a `BaseException` guard in `_run_index`) ensure status never sticks at
+   `indexing=True`.
+8. **Inline attachment disposition is allowlisted.** `GET .../attachments/{idx}?inline=1`
+   serves `Content-Disposition: inline` ONLY for `_SAFE_INLINE_MIMES` (PDF + raster
+   images) and always sends `X-Content-Type-Options: nosniff`; any other type is forced
+   to `attachment`. This prevents a crafted `text/html` attachment from rendering
+   same-origin (the PDF preview iframe is NOT sandboxed, so this allowlist is the guard).
+   Do not widen the allowlist to script-capable types (`text/html`, `image/svg+xml`).
 
 ## Conventions / gotchas
 
@@ -93,9 +111,10 @@ keep it that way.
   `sample_mbox` fixture, which generates a genuine mbox with real PDF (reportlab) and
   DOCX (python-docx) attachments. Prefer real round-trips over mocks. Every module has
   a matching `tests/test_*.py`; keep that bar when adding code.
-- **Index build is synchronous in `create_app`** (build-then-serve). Progress prints
-  to stdout/logs. This matches the spec but means the HTTP port isn't up until the
-  first index finishes.
+- **Index build runs on a background thread** (`create_app(index_in_background=True)`,
+  the default); the server serves immediately and `/api/status` reports progress.
+  Tests pass `index_in_background=False` to index synchronously for deterministic
+  assertions.
 - **`Settings`** is a plain dataclass; `create_app(settings)` builds the index if
   stale and stores `store`/`settings` on `app.state`. Routes close over `store`.
 
@@ -126,29 +145,24 @@ Docker: `./run.sh /path/to/your.mbox` (build + run). See `README.md`.
   document is NOT sandboxed (only the message-body iframe is). Body HTML goes to the
   iframe via `srcdoc`.
 
+## Implemented enhancements (spec: docs/superpowers/specs/2026-06-07-background-indexing-inline-pdf-design.md)
+
+- **Background indexing + on-site progress** — serves immediately; daemon-thread index;
+  `GET /api/status`; status bar in `app.js` polls and fills results in live. See
+  contracts #7 above.
+- **Inline PDF viewing** — `?inline=1` (allowlisted, see contract #8) renders PDFs in a
+  reader-pane `<iframe>` (`viewPdf` in `app.js`); download link kept.
+
 ## Known follow-ups (deliberately deferred)
 
-- **Background indexing + on-site progress (requested).** Today `create_app` indexes
-  synchronously before uvicorn binds, so for a 13GB+ file the site is unreachable for
-  ~20+ minutes on first run. Improve by: run `build_index` in a background thread (or
-  a startup task) and serve the UI immediately; expose `GET /api/status` returning
-  `{indexing: bool, messages_done, bytes_done, bytes_total, percent}` (the indexer
-  already tracks a per-message `count`; have its `progress` callback also record the
-  current byte offset = `offset+length` of the last message, vs `os.path.getsize`);
-  and add a status bar in `static/app.js` that polls `/api/status` and shows
-  "Indexing… N% (X of Y messages)" so a user who reloads sees live progress. While
-  indexing, label/search results grow as rows commit (every `COMMIT_EVERY`), so the UI
-  is usable immediately and fills in. Guard the "done" marker as today (write
-  `meta` size/mtime only on completion) so an interrupted run re-indexes.
-- **Inline PDF viewing (requested).** Currently attachments are download-only. Add an
-  in-browser PDF preview: serve the attachment with `Content-Disposition: inline`
-  (or a separate `?disposition=inline` param) and `Content-Type: application/pdf`, and
-  in the reader render a clickable attachment that opens the PDF in an `<iframe>` /
-  `<embed>` or a new tab. Browsers render PDFs natively, so no JS PDF lib is required;
-  if finer control is wanted later, `pdf.js` can be vendored. Keep the download link too.
-  (Note `_content_disposition` in `api.py` currently hardcodes `attachment`; parameterize it.)
 - Attachment downloads are buffered (`Response(content=...)`), not streamed — fine for
   Gmail's 25MB attachment cap; stream if larger attachments are expected.
+- Indexing progress is in-memory only; an interrupted run re-indexes from scratch (the
+  `meta` "done" marker is written only on completion). No cancel/pause controls.
+- `/api/status` reports `bytes_total: 0` on a reused (already-current) index — harmless
+  (the bar is hidden when ready), but inconsistent if an external consumer reads it.
+- Inline preview is PDF-only in the UI (images are allowlisted server-side but the
+  frontend never requests them inline). No docx/other preview.
 - Single-mbox only. No Maildir / nested-folder / multi-file discovery (out of scope).
 - No authentication — assumes single-user local use.
 - Search uses prefix-AND of quoted terms (`_fts_query`); no advanced query UI.
