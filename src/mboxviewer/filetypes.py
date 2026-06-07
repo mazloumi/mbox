@@ -9,7 +9,7 @@ _DOCUMENTS = {
     "application/vnd.oasis.opendocument.text",
 }
 _SPREADSHEETS = {
-    "application/vnd.ms-excel", "text/csv",
+    "application/vnd.ms-excel",  # text/csv is handled by the explicit early check
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.oasis.opendocument.spreadsheet",
 }
