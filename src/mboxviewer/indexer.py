@@ -8,6 +8,7 @@ from .reader import (
 from .extract import extract_text, html_to_text
 
 COMMIT_EVERY = 2000
+PROGRESS_EVERY = 500
 
 
 def _iso_date(raw):
@@ -59,8 +60,8 @@ def build_index(settings, store, progress=None):
             continue
         if count % COMMIT_EVERY == 0:
             store.commit()
-        if progress and count % 500 == 0:
-            progress(count)
+        if progress and count % PROGRESS_EVERY == 0:
+            progress(count, offset + length)
     store.set_meta("source_size", str(os.path.getsize(settings.mbox_path)))
     store.set_meta("source_mtime", str(int(os.path.getmtime(settings.mbox_path))))
     store.commit()

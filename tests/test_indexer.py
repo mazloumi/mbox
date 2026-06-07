@@ -55,6 +55,19 @@ def test_rebuild_does_not_duplicate(tmp_path, sample_mbox):
     assert len(store.list_messages(None, 100, 0)) == 2
 
 
+def test_progress_callback_receives_count_and_bytes(tmp_path, sample_mbox, monkeypatch):
+    import mboxviewer.indexer as idx
+    monkeypatch.setattr(idx, "PROGRESS_EVERY", 1)  # fire on every message
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    store = Store(settings.index_path)
+    store.create_schema()
+    calls = []
+    idx.build_index(settings, store, progress=lambda c, b: calls.append((c, b)))
+    assert len(calls) >= 1
+    last_count, last_bytes = calls[-1]
+    assert last_count >= 1 and last_bytes > 0
+
+
 def test_failed_message_is_not_partially_indexed(tmp_path, sample_mbox, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("bad attachment")
