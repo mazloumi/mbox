@@ -6,3 +6,5 @@ __pycache__/
 *.db-shm
 .env
 index/
+.DS_Store
+.playwright-mcp/
