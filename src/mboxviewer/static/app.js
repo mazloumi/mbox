@@ -3,12 +3,15 @@ const messageList = document.getElementById("message-list");
 const readerHeader = document.getElementById("reader-header");
 const readerAtt = document.getElementById("reader-attachments");
 const readerBody = document.getElementById("reader-body");
+const readerPdf = document.getElementById("reader-pdf");
+const statusBar = document.getElementById("status-bar");
 const q = document.getElementById("q");
 
 const PAGE_SIZE = 50;
 let activeLabel = null;
-let currentQuery = "";   // "" = browse mode; non-empty = search mode
+let currentQuery = "";
 let currentPage = 1;
+let currentOpenId = null;
 
 async function getJSON(url) {
   const resp = await fetch(url);
@@ -62,7 +65,6 @@ function appendMessages(messages) {
 function renderLoadMore(lastCount) {
   const existing = document.getElementById("load-more");
   if (existing) existing.remove();
-  // A full page implies there may be more; a short page means we reached the end.
   if (lastCount === PAGE_SIZE) {
     const li = document.createElement("li");
     li.id = "load-more";
@@ -93,15 +95,27 @@ async function loadNextPage() {
   }
 }
 
+function viewPdf(id, idx) {
+  readerPdf.src = `/api/messages/${id}/attachments/${idx}?inline=1`;
+  readerPdf.hidden = false;
+}
+
 async function openMessage(id, allowRemote = false) {
+  currentOpenId = id;
+  readerPdf.hidden = true;
+  readerPdf.removeAttribute("src");
   try {
     const m = await getJSON(`/api/messages/${id}?allow_remote=${allowRemote}`);
     const remoteBtn = allowRemote ? "" : `<button id="load-remote" type="button">Load remote images</button>`;
     readerHeader.innerHTML = `<div class="subject">${escapeHtml(m.subject || "(no subject)")}</div>
       <div class="meta">From: ${escapeHtml(m.from || "")}<br>To: ${escapeHtml(m.to || "")}<br>${escapeHtml(m.date || "")}</div>
       ${remoteBtn}`;
-    readerAtt.innerHTML = (m.attachments || []).map(a =>
-      `<a href="/api/messages/${id}/attachments/${a.idx}">${escapeHtml(a.filename)} (${escapeHtml(String(a.size))}b)</a>`).join("");
+    readerAtt.innerHTML = (m.attachments || []).map(a => {
+      const dl = `<a href="/api/messages/${id}/attachments/${a.idx}" download>${escapeHtml(a.filename)} (${escapeHtml(String(a.size))}b)</a>`;
+      const view = a.mime === "application/pdf"
+        ? ` <button type="button" class="view-pdf" onclick="viewPdf(${id}, ${a.idx})">View</button>` : "";
+      return `<span class="att">${dl}${view}</span>`;
+    }).join("");
     readerBody.srcdoc = m.body_html;
     const btn = document.getElementById("load-remote");
     if (btn) btn.onclick = () => openMessage(id, true);
@@ -109,6 +123,35 @@ async function openMessage(id, allowRemote = false) {
     readerHeader.innerHTML = `<div class="meta">Failed to open message: ${escapeHtml(String(err.message))}</div>`;
     readerAtt.innerHTML = "";
     readerBody.srcdoc = "";
+  }
+}
+
+async function pollStatus() {
+  try {
+    const s = await getJSON("/api/status");
+    if (s.error) {
+      statusBar.hidden = false;
+      statusBar.className = "error";
+      statusBar.textContent = "Indexing failed: " + s.error;
+      return;
+    }
+    if (s.indexing) {
+      statusBar.hidden = false;
+      statusBar.className = "";
+      statusBar.textContent = `Indexing… ${s.percent}% · ${Number(s.messages).toLocaleString()} messages`;
+      loadLabels();
+      if (currentOpenId === null) reload();
+      setTimeout(pollStatus, 2000);
+    } else {
+      statusBar.hidden = true;
+      loadLabels();
+      if (currentOpenId === null) reload();
+    }
+  } catch (err) {
+    statusBar.hidden = false;
+    statusBar.className = "error";
+    statusBar.textContent = "Status unavailable: " + err.message;
+    setTimeout(pollStatus, 3000);
   }
 }
 
@@ -120,3 +163,4 @@ q.addEventListener("input", () => {
 
 loadLabels();
 reload();
+pollStatus();

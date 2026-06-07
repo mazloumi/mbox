@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <div id="status-bar" hidden></div>
   <div id="app">
     <aside id="labels"><h2>Folders</h2><ul id="label-list"></ul></aside>
     <section id="list">
@@ -18,6 +19,7 @@
       <div id="reader-header"></div>
       <div id="reader-attachments"></div>
       <iframe id="reader-body" sandbox=""></iframe>
+      <iframe id="reader-pdf" hidden></iframe>
     </section>
   </div>
   <script src="/static/app.js"></script>

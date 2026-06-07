@@ -1,6 +1,6 @@
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, sans-serif; }
-#app { display: grid; grid-template-columns: 220px 360px 1fr; height: 100vh; }
+body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+#app { display: grid; grid-template-columns: 220px 360px 1fr; flex: 1; min-height: 0; }
 #labels, #list { border-right: 1px solid #ddd; overflow-y: auto; }
 #labels { padding: 0 12px; }
 #labels h2 { font-size: 13px; text-transform: uppercase; color: #666; }
@@ -21,3 +21,9 @@ body { margin: 0; font-family: system-ui, sans-serif; }
 #reader-body { flex: 1; border: 0; width: 100%; }
 #load-more { text-align: center; color: #36c; font-weight: 600; }
 #load-remote { margin-top: 8px; font-size: 12px; padding: 3px 8px; cursor: pointer; }
+#status-bar { padding: 6px 12px; background: #fff8e1; border-bottom: 1px solid #f0e0a0;
+  font-size: 13px; color: #7a6a2a; }
+#status-bar.error { background: #fdecea; color: #b00020; border-color: #f5c6cb; }
+#reader-pdf { flex: 1; border: 0; width: 100%; border-top: 1px solid #ddd; }
+.att { display: inline-block; margin-right: 10px; }
+.view-pdf { margin-left: 4px; font-size: 12px; cursor: pointer; }
