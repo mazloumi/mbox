@@ -46,10 +46,11 @@ the header (buttons) and footer (index/archive status text).
    - error: `Indexing failed: {error}`
 3. **Archive state** (from `/api/archive/status`):
    - running: `Archiving images… {messages_scanned}/{total_messages} · {downloaded} saved · {skipped} skipped · {failed} failed`
-   - idle, persisted from `archive.db`:
+   - idle, persisted from `archive.db` — show the full breakdown:
      - `total == 0` → `Images: not archived yet`
-     - `up_to_date` (meta matches current mbox AND `failed == 0`) → `Images: {ok} archived ✓`
-     - otherwise → `Images: {ok} archived · click to update`
+     - otherwise → `Images: {total} total · {ok} archived · {skipped} skipped · {failed} failed`,
+       suffixed with ` ✓` when `up_to_date` (meta matches current mbox AND `failed == 0`),
+       or ` · click to update` otherwise.
    - error: `Archive failed: {error}`
 
 `#footer.error` styling applies when an index or archive error is shown.
