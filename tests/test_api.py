@@ -219,6 +219,30 @@ def test_status_includes_mbox_and_current(tmp_path, sample_mbox):
     assert c.get("/api/status").json()["current"] is False
 
 
+def test_filetypes_endpoint(client):
+    cats = {c["category"]: c["count"] for c in client.get("/api/filetypes").json()}
+    assert cats["Documents"] == 2          # sample has invoice.pdf + report.docx
+
+
+def test_files_by_category(client):
+    data = client.get("/api/files", params={"category": "Documents"}).json()
+    names = sorted(f["filename"] for f in data["files"])
+    assert names == ["invoice.pdf", "report.docx"]
+    assert all("subject" in f and "size" in f and "idx" in f for f in data["files"])
+
+
+def test_files_unknown_category_empty(client):
+    assert client.get("/api/files", params={"category": "Nope"}).json()["files"] == []
+
+
+def test_file_text_endpoint(client):
+    data = client.get("/api/files", params={"category": "Documents"}).json()
+    pdf = next(f for f in data["files"] if f["filename"] == "invoice.pdf")
+    t = client.get(f"/api/files/{pdf['message_id']}/{pdf['idx']}/text").json()
+    assert t["filename"] == "invoice.pdf" and "12345" in t["text"]
+    assert client.get("/api/files/999999/0/text").status_code == 404
+
+
 def test_archive_status_includes_persisted_state(tmp_path, image_server):
     from mboxviewer.archive import ArchiveStatus, run_archive
     base, _ = image_server
