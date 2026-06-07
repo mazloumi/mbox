@@ -62,6 +62,15 @@ def test_get_message_and_attachments(tmp_path):
     assert atts[0]["filename"] == "invoice.pdf" and atts[0]["idx"] == 0
 
 
+def test_all_message_spans(tmp_path, sample_mbox):
+    from mboxviewer.config import Settings
+    from mboxviewer.indexer import build_index
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    s = Store(settings.index_path); s.create_schema(); build_index(settings, s)
+    spans = s.all_message_spans()
+    assert len(spans) == 2 and spans[0]["length"] > 0
+
+
 def test_reads_work_from_another_thread(tmp_path):
     s = Store(str(tmp_path / "i.db"))
     s.create_schema()

@@ -174,3 +174,6 @@ class Store:
     def get_attachments(self, message_id):
         return self.conn.execute(
             "SELECT * FROM attachments WHERE message_id=? ORDER BY idx", (message_id,)).fetchall()
+
+    def all_message_spans(self):
+        return self.conn.execute("SELECT offset, length FROM messages").fetchall()
