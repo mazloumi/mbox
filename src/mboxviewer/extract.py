@@ -2,6 +2,9 @@ import io
 from html.parser import HTMLParser
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_XLS_MIME = "application/vnd.ms-excel"
 
 
 class _TextExtractor(HTMLParser):
@@ -41,6 +44,45 @@ def _docx_text(data: bytes) -> str:
     return "\n".join(par.text for par in d.paragraphs)
 
 
+def _pptx_text(data: bytes) -> str:
+    from pptx import Presentation
+    prs = Presentation(io.BytesIO(data))
+    parts = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                parts.append(shape.text_frame.text)
+    return "\n".join(p for p in parts if p)
+
+
+def _rows_text(rows) -> str:
+    out = []
+    for row in rows:
+        cells = [str(c) for c in row if c is not None and str(c).strip() != ""]
+        if cells:
+            out.append("\t".join(cells))
+    return "\n".join(out)
+
+
+def _xlsx_text(data: bytes) -> str:
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    try:
+        return "\n".join(_rows_text(ws.iter_rows(values_only=True)) for ws in wb.worksheets)
+    finally:
+        wb.close()
+
+
+def _xls_text(data: bytes) -> str:
+    import xlrd
+    book = xlrd.open_workbook(file_contents=data)
+    sheets = []
+    for sheet in book.sheets():
+        rows = (sheet.row_values(r) for r in range(sheet.nrows))
+        sheets.append(_rows_text(rows))
+    return "\n".join(sheets)
+
+
 def extract_text(filename: str, mime: str, data: bytes) -> str:
     """Best-effort plain-text extraction. Returns '' for unsupported or on any error."""
     mime = (mime or "").lower()
@@ -49,6 +91,12 @@ def extract_text(filename: str, mime: str, data: bytes) -> str:
             return _pdf_text(data)
         if mime == _DOCX_MIME:
             return _docx_text(data)
+        if mime == _PPTX_MIME:
+            return _pptx_text(data)
+        if mime == _XLSX_MIME:
+            return _xlsx_text(data)
+        if mime == _XLS_MIME:
+            return _xls_text(data)
         if mime.startswith("text/html"):
             return html_to_text(data.decode("utf-8", "replace"))
         if mime.startswith("text/"):
