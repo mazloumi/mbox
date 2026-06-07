@@ -6,6 +6,7 @@ _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _XLS_MIME = "application/vnd.ms-excel"
+# Keep in sync with filetypes._CALENDAR (separate module, no shared import).
 _CALENDAR_MIMES = {"text/calendar", "application/ics", "text/x-vcalendar"}
 _TEXTLIKE_APP_MIMES = {
     "application/json", "application/xml",

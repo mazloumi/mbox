@@ -23,6 +23,7 @@ _ARCHIVES = {
     "application/x-gzip", "application/x-tar", "application/x-rar-compressed",
     "application/vnd.rar", "application/x-7z-compressed",
 }
+# Keep in sync with extract._CALENDAR_MIMES (separate module, no shared import).
 _CALENDAR = {"text/calendar", "application/ics", "text/x-vcalendar"}
 
 
