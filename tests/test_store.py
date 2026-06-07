@@ -1,3 +1,5 @@
+import threading
+
 from mboxviewer.store import Store
 
 
@@ -58,3 +60,21 @@ def test_get_message_and_attachments(tmp_path):
     assert row["offset"] == 5 and row["length"] == 50
     atts = s.get_attachments(mid)
     assert atts[0]["filename"] == "invoice.pdf" and atts[0]["idx"] == 0
+
+
+def test_reads_work_from_another_thread(tmp_path):
+    s = Store(str(tmp_path / "i.db"))
+    s.create_schema()
+    mid = s.add_message(0, 10, "<a>", "Hi", "a@x.com", "b@x.com", "2024-01-01T10:00:00", "raw")
+    s.commit()
+    out = {}
+
+    def reader():
+        out["rows"] = s.list_messages(None, 10, 0)
+        out["count"] = s.message_count()
+
+    t = threading.Thread(target=reader)
+    t.start()
+    t.join()
+    assert len(out["rows"]) == 1 and out["rows"][0]["id"] == mid
+    assert out["count"] == 1

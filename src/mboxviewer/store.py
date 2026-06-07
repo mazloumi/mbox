@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 
 SCHEMA = """
@@ -43,9 +44,23 @@ def _fts_query(q: str) -> str:
 class Store:
     def __init__(self, db_path: str):
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
+        self._db_path = db_path
+        self._local = threading.local()
+
+    @property
+    def conn(self):
+        """A SQLite connection unique to the calling thread (lazily opened)."""
+        c = getattr(self._local, "conn", None)
+        if c is None:
+            c = sqlite3.connect(self._db_path, check_same_thread=False)
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("PRAGMA busy_timeout=5000")
+            self._local.conn = c
+        return c
+
+    def message_count(self):
+        return self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
 
     def create_schema(self):
         self.conn.executescript(SCHEMA)
