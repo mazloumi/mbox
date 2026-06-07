@@ -8,6 +8,10 @@ const tabFolders = document.getElementById("tab-folders");
 const tabFiles = document.getElementById("tab-files");
 const readerText = document.getElementById("reader-text");
 const readerImage = document.getElementById("reader-image");
+const readerAudio = document.getElementById("reader-audio");
+const readerVideo = document.getElementById("reader-video");
+const readerTable = document.getElementById("reader-table");
+const READER_PANES = [readerBody, readerPdf, readerText, readerImage, readerAudio, readerVideo, readerTable];
 const appEl = document.getElementById("app");
 const archiveBtn = document.getElementById("archive-images");
 const mboxNameEl = document.getElementById("mbox-name");
@@ -144,31 +148,87 @@ async function loadNextPage() {
   }
 }
 
+// Show exactly one reader pane; hide the rest and stop/clear their content
+// (so switching files stops audio/video and frees iframes).
+function showOnlyPane(el) {
+  for (const p of READER_PANES) {
+    if (p === el) { p.hidden = false; continue; }
+    p.hidden = true;
+    if (p === readerAudio || p === readerVideo) {
+      try { p.pause(); } catch (e) { /* ignore */ }
+      p.removeAttribute("src"); p.load();
+    } else if (p === readerPdf || p === readerImage) {
+      p.removeAttribute("src");
+    } else if (p === readerBody) {
+      p.srcdoc = "";
+    } else if (p === readerTable) {
+      p.innerHTML = "";
+    } else if (p === readerText) {
+      p.textContent = "";
+    }
+  }
+}
+
 function viewPdf(id, idx) {
+  showOnlyPane(readerPdf);
   readerPdf.src = `/api/messages/${id}/attachments/${idx}?inline=1`;
-  readerPdf.hidden = false;
-  readerBody.hidden = true;
-  readerText.hidden = true;
-  readerImage.hidden = true; readerImage.removeAttribute("src");
+}
+
+function parseCsv(text) {
+  const rows = []; let row = [], field = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else { q = false; } }
+      else { field += c; }
+    } else if (c === '"') { q = true; }
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c !== "\r") { field += c; }
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ""));
+}
+
+function renderCsvTable(text) {
+  const rows = parseCsv(text);
+  const CAP = 500;
+  const shown = rows.slice(0, CAP + 1); // +1 header
+  const head = shown[0] || [];
+  const body = shown.slice(1);
+  const th = head.map(c => `<th>${escapeHtml(c)}</th>`).join("");
+  const trs = body.map(r => "<tr>" + r.map(c => `<td>${escapeHtml(c)}</td>`).join("") + "</tr>").join("");
+  let html = `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  if (rows.length - 1 > CAP) html += `<p class="csv-note">Showing first ${CAP} of ${rows.length - 1} rows.</p>`;
+  return html;
 }
 
 async function openFile(mid, idx, filename, mime, size) {
   currentOpenId = mid;
-  readerBody.hidden = true; readerBody.srcdoc = "";
-  readerPdf.hidden = true; readerPdf.removeAttribute("src");
+  const m = (mime || "").toLowerCase();
+  const name = (filename || "").toLowerCase();
+  const inlineUrl = `/api/messages/${mid}/attachments/${idx}?inline=1`;
   readerHeader.innerHTML = `<div class="subject">${escapeHtml(filename || "(no name)")}</div>
     <div class="meta">${escapeHtml(mime || "")} · ${humanSize(size)}</div>`;
   readerAtt.innerHTML =
     `<a href="/api/messages/${mid}/attachments/${idx}" download>Download</a>` +
     ` <button type="button" class="open-email" onclick="openEmailFromFile(${mid})">Open email</button>`;
-  if ((mime || "").toLowerCase().startsWith("image/")) {
-    readerText.hidden = true; readerText.textContent = "";
-    readerImage.src = `/api/messages/${mid}/attachments/${idx}?inline=1`;
-    readerImage.hidden = false;
+  if (m.startsWith("image/")) { showOnlyPane(readerImage); readerImage.src = inlineUrl; return; }
+  if (m.startsWith("audio/")) { showOnlyPane(readerAudio); readerAudio.src = inlineUrl; return; }
+  if (m.startsWith("video/")) { showOnlyPane(readerVideo); readerVideo.src = inlineUrl; return; }
+  if (m === "text/csv" || name.endsWith(".csv")) {
+    showOnlyPane(readerTable);
+    readerTable.innerHTML = "Loading…";
+    try {
+      const d = await getJSON(`/api/files/${mid}/${idx}/text`);
+      readerTable.innerHTML = (d.text && d.text.trim())
+        ? renderCsvTable(d.text) : "No content.";
+    } catch (err) {
+      readerTable.textContent = "Failed to load file: " + err.message;
+    }
     return;
   }
-  readerImage.hidden = true; readerImage.removeAttribute("src");
-  readerText.hidden = false;
+  showOnlyPane(readerText);
   readerText.textContent = "Loading…";
   try {
     const d = await getJSON(`/api/files/${mid}/${idx}/text`);
@@ -186,11 +246,7 @@ function openEmailFromFile(mid) {
 
 async function openMessage(id, allowRemote = false) {
   currentOpenId = id;
-  readerPdf.hidden = true;
-  readerPdf.removeAttribute("src");
-  readerBody.hidden = false;
-  readerText.hidden = true;
-  readerImage.hidden = true; readerImage.removeAttribute("src");
+  showOnlyPane(readerBody);
   try {
     const m = await getJSON(`/api/messages/${id}?allow_remote=${allowRemote}`);
     const remoteBtn = allowRemote ? "" : `<button id="load-remote" type="button">Load remote images</button>`;
@@ -275,10 +331,8 @@ function setMode(mode) {
   appEl.classList.remove("folders-collapsed");
   readerHeader.innerHTML = "";
   readerAtt.innerHTML = "";
-  readerBody.srcdoc = ""; readerBody.hidden = (mode === "files");
-  readerPdf.hidden = true; readerPdf.removeAttribute("src");
-  readerText.hidden = true; readerText.textContent = "";
-  readerImage.hidden = true; readerImage.removeAttribute("src");
+  showOnlyPane(mode === "files" ? null : readerBody);
+  readerBody.srcdoc = "";
   refreshLeft();
   reload();
 }

@@ -201,6 +201,35 @@ def test_inline_forced_to_attachment_for_unsafe_mime(tmp_path):
     assert r.headers["x-content-type-options"] == "nosniff"
 
 
+def test_inline_allows_safe_media_and_bmp(tmp_path):
+    import io
+    from email.message import EmailMessage
+    from email.generator import BytesGenerator
+    m = EmailMessage()
+    m["Subject"] = "x"; m["From"] = "a@x.com"; m["To"] = "b@x.com"
+    m["Date"] = "Mon, 01 Jan 2024 10:00:00 +0000"; m["X-Gmail-Labels"] = "Inbox"
+    m.set_content("body")
+    m.add_attachment(b"ID3audio", maintype="audio", subtype="mpeg", filename="a.mp3")
+    m.add_attachment(b"\x00\x00\x00mp4", maintype="video", subtype="mp4", filename="v.mp4")
+    m.add_attachment(b"BM\x00\x00", maintype="image", subtype="bmp", filename="i.bmp")
+    m.add_attachment(b"<b>x</b>", maintype="text", subtype="html", filename="e.html")
+    buf = io.BytesIO(); BytesGenerator(buf).flatten(m); data = buf.getvalue()
+    p = tmp_path / "m.mbox"
+    p.write_bytes(b"From - x\n" + data + (b"" if data.endswith(b"\n") else b"\n") + b"\n")
+    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
+    c = TestClient(create_app(settings, index_in_background=False))
+    mid = c.get("/api/messages").json()["messages"][0]["id"]
+    # attachments are walk-ordered: 0=mp3, 1=mp4, 2=bmp, 3=html
+    for idx in (0, 1, 2):
+        r = c.get(f"/api/messages/{mid}/attachments/{idx}", params={"inline": "true"})
+        assert r.headers["content-disposition"].startswith("inline"), idx
+        assert r.headers["x-content-type-options"] == "nosniff"
+    # text/html still forced to attachment (allowlist must not have widened unsafely)
+    r = c.get(f"/api/messages/{mid}/attachments/3", params={"inline": "true"})
+    assert r.headers["content-disposition"].startswith("attachment")
+
+
 def test_status_mbox_name_override(tmp_path, sample_mbox):
     settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
                         archive_dir=str(tmp_path / "arch"), mbox_name="your-mail.mbox")

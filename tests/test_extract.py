@@ -104,3 +104,52 @@ def test_extract_corrupt_office_returns_empty():
     from mboxviewer.extract import extract_text
     mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     assert extract_text("d.xlsx", mime, b"not a real zip") == ""
+
+
+def test_extract_ics_event():
+    from mboxviewer.extract import extract_text
+    ics = (
+        "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\n"
+        "SUMMARY:Project Kickoff\r\n"
+        "DTSTART:20240115T090000Z\r\nDTEND:20240115T100000Z\r\n"
+        "LOCATION:Room 4\r\n"
+        "ORGANIZER:mailto:alice@example.com\r\n"
+        "ATTENDEE:mailto:bob@example.com\r\n"
+        "DESCRIPTION:Discuss the plan\r\n"
+        "END:VEVENT\r\nEND:VCALENDAR\r\n"
+    )
+    out = extract_text("invite.ics", "application/ics", ics.encode())
+    assert "Project Kickoff" in out and "Room 4" in out
+    assert "alice@example.com" in out and "bob@example.com" in out
+    assert "2024-01-15" in out  # DTSTART is pretty-printed
+
+
+def test_extract_ics_unfolds_long_lines():
+    from mboxviewer.extract import extract_text
+    ics = (
+        "BEGIN:VEVENT\r\n"
+        "SUMMARY:Quarterly planning and budget \r\n review session\r\n"
+        "END:VEVENT\r\n"
+    )
+    out = extract_text("x.ics", "text/calendar", ics.encode())
+    assert "Quarterly planning and budget review session" in out
+
+
+def test_extract_ics_unfolds_midword():
+    # RFC 5545 folds at an arbitrary octet boundary; unfolding must NOT insert a
+    # space. A mid-word fold ("Kick\r\n off") must rejoin to "Kickoff".
+    from mboxviewer.extract import extract_text
+    ics = "BEGIN:VEVENT\r\nSUMMARY:Kick\r\n off\r\nEND:VEVENT\r\n"
+    out = extract_text("x.ics", "text/calendar", ics.encode())
+    assert "Kickoff" in out
+
+
+def test_extract_textlike_application_types():
+    from mboxviewer.extract import extract_text
+    assert "hello" in extract_text("a.json", "application/json", b'{"k": "hello"}')
+    assert "<note>" in extract_text("a.xml", "application/xml", b"<note>hi</note>")
+
+
+def test_extract_ics_no_event_returns_empty():
+    from mboxviewer.extract import extract_text
+    assert extract_text("x.ics", "text/calendar", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n") == ""
