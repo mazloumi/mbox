@@ -1,0 +1,14 @@
+services:
+  mbox-viewer:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - "${MBOX_FILE:?set MBOX_FILE to your .mbox path in .env}:/data/mail.mbox:ro"
+      - mbox-index:/index
+    environment:
+      - MBOX_PATH=/data/mail.mbox
+      - INDEX_PATH=/index/index.db
+
+volumes:
+  mbox-index:
