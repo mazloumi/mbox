@@ -179,20 +179,42 @@ class Store:
         return self.conn.execute(
             "SELECT mime, COUNT(*) AS c FROM attachments GROUP BY mime").fetchall()
 
-    def list_files_by_mimes(self, mimes, limit, offset):
+    def list_files_by_mimes(self, mimes, limit, offset, query=None):
         # Drop NULLs: SQLite's `IN (NULL)` silently matches nothing, which would
         # produce a degenerate query rather than an honest empty result.
         mimes = [m for m in mimes if m is not None]
-        if not mimes:
+        where = []
+        params = []
+        if mimes:
+            placeholders = ",".join("?" * len(mimes))
+            where.append(f"a.mime IN ({placeholders})")
+            params.extend(mimes)
+        q = (query or "").strip()
+        if q:
+            like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            match = _fts_query(q)
+            if match:
+                where.append("(a.filename LIKE ? ESCAPE '\\' OR a.message_id IN"
+                             " (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?))")
+                params.extend([like, match])
+            else:
+                where.append("a.filename LIKE ? ESCAPE '\\'")
+                params.append(like)
+        if not where:
             return []
-        placeholders = ",".join("?" * len(mimes))
-        return self.conn.execute(
-            "SELECT a.message_id AS message_id, a.idx AS idx, a.filename AS filename,"
-            " a.size AS size, a.mime AS mime, m.subject AS subject, m.date AS date"
-            " FROM attachments a JOIN messages m ON m.id = a.message_id"
-            f" WHERE a.mime IN ({placeholders})"
-            " ORDER BY a.filename LIMIT ? OFFSET ?",
-            (*mimes, limit, offset)).fetchall()
+        sql = ("SELECT a.message_id AS message_id, a.idx AS idx, a.filename AS filename,"
+               " a.size AS size, a.mime AS mime, m.subject AS subject, m.date AS date"
+               " FROM attachments a JOIN messages m ON m.id = a.message_id"
+               f" WHERE {' AND '.join(where)}"
+               " ORDER BY a.filename LIMIT ? OFFSET ?")
+        params.extend([limit, offset])
+        try:
+            return self.conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "no such table" in message or "fts5" in message or "syntax error" in message:
+                return []
+            raise
 
     def all_message_spans(self):
         return self.conn.execute("SELECT offset, length FROM messages ORDER BY offset").fetchall()
