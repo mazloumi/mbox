@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS assets (
   height INTEGER,
   status TEXT NOT NULL,
   error TEXT,
-  fetched_at TEXT
+  fetched_at TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS archive_meta (key TEXT PRIMARY KEY, value TEXT);
 """
@@ -39,19 +40,24 @@ class AssetStore:
 
     def create_schema(self):
         self.conn.executescript(ASSET_SCHEMA)
+        try:
+            self.conn.execute("ALTER TABLE assets ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # column already exists (fresh DB created it, or a prior migration ran)
         self.conn.commit()
 
     def commit(self):
         self.conn.commit()
 
-    def upsert_asset(self, url_hash, url, content_type, size, width, height, status, error, fetched_at):
+    def upsert_asset(self, url_hash, url, content_type, size, width, height, status, error,
+                     fetched_at, attempts=0):
         self.conn.execute(
-            "INSERT INTO assets(url_hash,url,content_type,size,width,height,status,error,fetched_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(url_hash) DO UPDATE SET"
+            "INSERT INTO assets(url_hash,url,content_type,size,width,height,status,error,fetched_at,attempts)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url_hash) DO UPDATE SET"
             " url=excluded.url, content_type=excluded.content_type, size=excluded.size,"
             " width=excluded.width, height=excluded.height, status=excluded.status,"
-            " error=excluded.error, fetched_at=excluded.fetched_at",
-            (url_hash, url, content_type, size, width, height, status, error, fetched_at))
+            " error=excluded.error, fetched_at=excluded.fetched_at, attempts=excluded.attempts",
+            (url_hash, url, content_type, size, width, height, status, error, fetched_at, attempts))
 
     def get_asset(self, url_hash):
         return self.conn.execute("SELECT * FROM assets WHERE url_hash=?", (url_hash,)).fetchone()
@@ -59,6 +65,10 @@ class AssetStore:
     def asset_status(self, url_hash):
         row = self.conn.execute("SELECT status FROM assets WHERE url_hash=?", (url_hash,)).fetchone()
         return row["status"] if row else None
+
+    def get_attempts(self, url_hash):
+        row = self.conn.execute("SELECT attempts FROM assets WHERE url_hash=?", (url_hash,)).fetchone()
+        return row["attempts"] if row else 0
 
     def cached_asset_hashes(self, url_hashes):
         # Query in batches so a message with a pathological number of distinct image
@@ -77,7 +87,8 @@ class AssetStore:
         rows = self.conn.execute("SELECT status, COUNT(*) c FROM assets GROUP BY status").fetchall()
         by = {r["status"]: r["c"] for r in rows}
         return {"ok": by.get("ok", 0), "skipped": by.get("skipped", 0),
-                "failed": by.get("failed", 0), "total": sum(by.values())}
+                "failed": by.get("failed", 0), "gave_up": by.get("gave_up", 0),
+                "total": sum(by.values())}
 
     def get_archive_meta(self):
         rows = self.conn.execute("SELECT key, value FROM archive_meta").fetchall()

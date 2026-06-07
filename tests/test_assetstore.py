@@ -28,7 +28,38 @@ def test_cached_hashes_and_counts(tmp_path):
     a.commit()
     assert a.cached_asset_hashes({"ok1", "fa1", "missing"}) == {"ok1"}
     assert a.cached_asset_hashes(set()) == set()
-    assert a.asset_counts() == {"ok": 2, "skipped": 1, "failed": 1, "total": 4}
+    assert a.asset_counts() == {"ok": 2, "skipped": 1, "failed": 1, "gave_up": 0, "total": 4}
+
+
+def test_attempts_and_gave_up_count(tmp_path):
+    a = AssetStore(str(tmp_path / "arch"))
+    a.create_schema()
+    a.upsert_asset("h", "u", None, None, None, None, "failed", "x", "t", attempts=2)
+    a.commit()
+    assert a.get_attempts("h") == 2
+    assert a.get_attempts("missing") == 0
+    a.upsert_asset("g", "u2", None, None, None, None, "gave_up", "y", "t", attempts=3)
+    a.commit()
+    assert a.asset_counts() == {"ok": 0, "skipped": 0, "failed": 1, "gave_up": 1, "total": 2}
+
+
+def test_migration_adds_attempts_to_old_db(tmp_path):
+    import os
+    import sqlite3
+    d = str(tmp_path / "arch")
+    os.makedirs(d, exist_ok=True)
+    # Simulate a pre-existing archive.db WITHOUT the attempts column.
+    conn = sqlite3.connect(os.path.join(d, "archive.db"))
+    conn.execute(
+        "CREATE TABLE assets (url_hash TEXT PRIMARY KEY, url TEXT, content_type TEXT,"
+        " size INTEGER, width INTEGER, height INTEGER, status TEXT NOT NULL, error TEXT,"
+        " fetched_at TEXT)")
+    conn.execute("INSERT INTO assets(url_hash, status) VALUES('h', 'ok')")
+    conn.commit(); conn.close()
+    a = AssetStore(d)
+    a.create_schema()                      # must ALTER-add attempts with no data loss
+    assert a.get_attempts("h") == 0        # existing row migrated to default 0
+    assert a.asset_status("h") == "ok"
 
 
 def test_archive_meta(tmp_path):
