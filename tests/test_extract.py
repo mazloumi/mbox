@@ -135,6 +135,15 @@ def test_extract_ics_unfolds_long_lines():
     assert "Quarterly planning and budget review session" in out
 
 
+def test_extract_ics_unfolds_midword():
+    # RFC 5545 folds at an arbitrary octet boundary; unfolding must NOT insert a
+    # space. A mid-word fold ("Kick\r\n off") must rejoin to "Kickoff".
+    from mboxviewer.extract import extract_text
+    ics = "BEGIN:VEVENT\r\nSUMMARY:Kick\r\n off\r\nEND:VEVENT\r\n"
+    out = extract_text("x.ics", "text/calendar", ics.encode())
+    assert "Kickoff" in out
+
+
 def test_extract_textlike_application_types():
     from mboxviewer.extract import extract_text
     assert "hello" in extract_text("a.json", "application/json", b'{"k": "hello"}')
