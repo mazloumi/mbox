@@ -32,8 +32,8 @@ _VOID_TAGS = {
     "link", "meta", "param", "source", "track", "wbr",
 }
 
-_REMOTE_SRC = re.compile(r'\ssrc\s*=\s*(["\'])\s*https?://[^"\']*\1', re.IGNORECASE)
-_REMOTE_CSS_URL = re.compile(r'url\(\s*["\']?\s*https?://[^)]*\)', re.IGNORECASE)
+_REMOTE_SRC = re.compile(r'\ssrc\s*=\s*(["\'])\s*(?:https?:)?//[^"\']*\1', re.IGNORECASE)
+_REMOTE_CSS_URL = re.compile(r'url\(\s*["\']?\s*(?:https?:)?//[^)]*\)', re.IGNORECASE)
 
 
 class _DangerousStripper(HTMLParser):

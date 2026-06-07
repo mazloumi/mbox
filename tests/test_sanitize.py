@@ -45,3 +45,13 @@ def test_blocks_remote_css_background():
 def test_stray_close_script_preserves_content():
     out = sanitize_html("<p>ok</p></script><p>more</p>", allow_remote=False)
     assert "ok" in out and "more" in out
+
+
+def test_blocks_protocol_relative_image():
+    out = sanitize_html('<img src="//tracker.example/x.gif">', allow_remote=False)
+    assert "tracker.example" not in out
+
+
+def test_allows_protocol_relative_when_opted_in():
+    out = sanitize_html('<img src="//imgs.example/x.png">', allow_remote=True)
+    assert "imgs.example" in out
