@@ -134,6 +134,11 @@ def run_archive(settings, store, asset_store, status):
                     asset_store.upsert_asset(h, url, res.content_type, len(res.data),
                                              width, height, "ok", None, _now())
                     status.inc_downloaded()
+                elif res.skip:
+                    # Deterministic policy skip (non-image / unsafe type): terminal, so a
+                    # re-run won't re-fetch it and the unchanged-mbox short-circuit holds.
+                    asset_store.upsert_asset(h, url, None, None, width, height, "skipped", res.error, _now())
+                    status.inc_skipped()
                 else:
                     asset_store.upsert_asset(h, url, None, None, width, height, "failed", res.error, _now())
                     status.inc_failed()

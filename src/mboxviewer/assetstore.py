@@ -61,13 +61,17 @@ class AssetStore:
         return row["status"] if row else None
 
     def cached_asset_hashes(self, url_hashes):
+        # Query in batches so a message with a pathological number of distinct image
+        # URLs can't exceed SQLite's bound-parameter limit.
         hs = list(url_hashes)
-        if not hs:
-            return set()
-        placeholders = ",".join("?" * len(hs))
-        rows = self.conn.execute(
-            f"SELECT url_hash FROM assets WHERE status='ok' AND url_hash IN ({placeholders})", hs).fetchall()
-        return {r["url_hash"] for r in rows}
+        result = set()
+        for i in range(0, len(hs), 500):
+            batch = hs[i:i + 500]
+            placeholders = ",".join("?" * len(batch))
+            rows = self.conn.execute(
+                f"SELECT url_hash FROM assets WHERE status='ok' AND url_hash IN ({placeholders})", batch).fetchall()
+            result.update(r["url_hash"] for r in rows)
+        return result
 
     def asset_counts(self):
         rows = self.conn.execute("SELECT status, COUNT(*) c FROM assets GROUP BY status").fetchall()

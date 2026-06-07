@@ -45,11 +45,25 @@ def test_archive_downloads_real_and_skips_tracker(tmp_path, image_server):
     assert "/logo.png" in requested and "/pixel.gif" not in requested
 
 
-def test_archive_records_failed(tmp_path, image_server):
+def test_archive_skips_non_image_and_svg(tmp_path, image_server):
+    # Deterministic policy rejections are 'skipped' (terminal), not 'failed', so they
+    # don't permanently defeat the unchanged-mbox short-circuit.
     base, _ = image_server
-    settings, store, astore = _setup(tmp_path, _mbox_with_html(tmp_path, f'<img src="{base}/notimage.html">'))
+    html = f'<img src="{base}/notimage.html"><img src="{base}/svg.svg">'
+    settings, store, astore = _setup(tmp_path, _mbox_with_html(tmp_path, html))
+    status = ArchiveStatus()
+    run_archive(settings, store, astore, status)
+    assert astore.asset_status(url_hash(f"{base}/notimage.html")) == "skipped"
+    assert astore.asset_status(url_hash(f"{base}/svg.svg")) == "skipped"
+    assert status.snapshot()["failed"] == 0
+
+
+def test_archive_records_failed_on_network_error(tmp_path):
+    # A genuine transport failure (nothing listening) is 'failed' (will be retried).
+    url = "http://127.0.0.1:9/x.png"
+    settings, store, astore = _setup(tmp_path, _mbox_with_html(tmp_path, f'<img src="{url}">'))
     run_archive(settings, store, astore, ArchiveStatus())
-    assert astore.asset_status(url_hash(f"{base}/notimage.html")) == "failed"
+    assert astore.asset_status(url_hash(url)) == "failed"
 
 
 def test_archive_resumable_and_short_circuits(tmp_path, image_server):

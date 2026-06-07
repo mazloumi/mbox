@@ -85,6 +85,9 @@ class FetchResult:
     content_type: str = None
     data: bytes = None
     error: str = None
+    # True for a deterministic policy rejection (not an image / unsafe type) that won't
+    # change on retry — recorded as 'skipped' (terminal) rather than 'failed' (retried).
+    skip: bool = False
 
 
 def fetch_image(url, timeout=FETCH_TIMEOUT, max_bytes=MAX_ASSET_BYTES):
@@ -94,12 +97,12 @@ def fetch_image(url, timeout=FETCH_TIMEOUT, max_bytes=MAX_ASSET_BYTES):
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             if not ctype.startswith("image/"):
-                return FetchResult(False, error=f"not an image: {ctype or 'unknown'}")
+                return FetchResult(False, error=f"not an image: {ctype or 'unknown'}", skip=True)
             if ctype == "image/svg+xml" or "xml" in ctype:
                 # SVG/XML images can carry scripts; serving them inline same-origin (or via
                 # direct navigation to /api/asset/<hash>) would be an XSS vector. Only
                 # archive safe raster image types.
-                return FetchResult(False, error=f"unsafe image type: {ctype}")
+                return FetchResult(False, error=f"unsafe image type: {ctype}", skip=True)
             buf = io.BytesIO()
             while True:
                 chunk = resp.read(65536)
