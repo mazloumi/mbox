@@ -65,3 +65,62 @@ def is_tracking_pixel(url, width, height):
         return True
     host = (urlparse(url).hostname or "").lower()
     return any(t in host for t in TRACKER_HOSTS)
+
+
+import io
+import os
+import urllib.request
+
+MAX_ASSET_BYTES = 10 * 1024 * 1024
+FETCH_TIMEOUT = 10
+
+
+class FetchResult:
+    def __init__(self, ok, content_type=None, data=None, error=None):
+        self.ok = ok
+        self.content_type = content_type
+        self.data = data
+        self.error = error
+
+
+def fetch_image(url, timeout=FETCH_TIMEOUT, max_bytes=MAX_ASSET_BYTES):
+    """Download an image. Never raises; returns a FetchResult. Honors HTTP(S)_PROXY env."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "mbox-viewer/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if not ctype.startswith("image/"):
+                return FetchResult(False, error=f"not an image: {ctype or 'unknown'}")
+            buf = io.BytesIO()
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                buf.write(chunk)
+                if buf.tell() > max_bytes:
+                    return FetchResult(False, error="too large")
+            return FetchResult(True, content_type=ctype, data=buf.getvalue())
+    except Exception as exc:  # noqa: BLE001 - any network/parse error is a failed fetch
+        return FetchResult(False, error=str(exc))
+
+
+def assets_dir(archive_dir):
+    return os.path.join(archive_dir, "assets")
+
+
+def asset_path(archive_dir, h):
+    return os.path.join(assets_dir(archive_dir), h)
+
+
+def write_asset_bytes(archive_dir, h, data):
+    os.makedirs(assets_dir(archive_dir), exist_ok=True)
+    with open(asset_path(archive_dir, h), "wb") as f:
+        f.write(data)
+
+
+def read_asset_bytes(archive_dir, h):
+    try:
+        with open(asset_path(archive_dir, h), "rb") as f:
+            return f.read()
+    except OSError:
+        return None

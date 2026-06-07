@@ -1,4 +1,5 @@
 from mboxviewer.assets import url_hash, normalize_url, extract_image_refs, is_tracking_pixel
+from mboxviewer.assets import fetch_image, write_asset_bytes, read_asset_bytes, assets_dir
 
 
 def test_url_hash_stable_and_hex():
@@ -33,3 +34,34 @@ def test_is_tracking_pixel():
     assert is_tracking_pixel("https://track.example/o.gif", None, None) is True
     assert is_tracking_pixel("https://x.example/logo.png", 300, 100) is False
     assert is_tracking_pixel("https://x.example/logo.png", None, None) is False
+
+
+def test_fetch_image_success(image_server):
+    base, _ = image_server
+    res = fetch_image(f"{base}/logo.png")
+    assert res.ok and res.content_type == "image/png" and res.data == b"FAKEIMAGEBYTES"
+
+
+def test_fetch_image_rejects_non_image(image_server):
+    base, _ = image_server
+    res = fetch_image(f"{base}/notimage.html")
+    assert res.ok is False and "image" in res.error
+
+
+def test_fetch_image_rejects_oversize(image_server):
+    base, _ = image_server
+    res = fetch_image(f"{base}/big.png", max_bytes=1024)
+    assert res.ok is False and "large" in res.error
+
+
+def test_fetch_image_network_error_is_caught():
+    res = fetch_image("http://127.0.0.1:9/none.png", timeout=1)
+    assert res.ok is False and res.error
+
+
+def test_asset_byte_cache_roundtrip(tmp_path):
+    archive_dir = str(tmp_path / "arch")
+    write_asset_bytes(archive_dir, "abc123", b"hello")
+    assert read_asset_bytes(archive_dir, "abc123") == b"hello"
+    assert read_asset_bytes(archive_dir, "missing") is None
+    assert assets_dir(archive_dir).endswith("assets")
