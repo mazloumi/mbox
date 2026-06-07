@@ -40,3 +40,8 @@ def test_preserves_inline_style():
 def test_blocks_remote_css_background():
     out = sanitize_html('<div style="background: url(http://tracker.example/x.png)">hi</div>', allow_remote=False)
     assert "tracker.example" not in out
+
+
+def test_stray_close_script_preserves_content():
+    out = sanitize_html("<p>ok</p></script><p>more</p>", allow_remote=False)
+    assert "ok" in out and "more" in out

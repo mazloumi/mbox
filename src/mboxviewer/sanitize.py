@@ -41,25 +41,25 @@ class _DangerousStripper(HTMLParser):
 
     Special care is needed for RAWTEXT elements (script, style): Python's
     HTMLParser does not parse tags inside them, so <script><script>x</script>
-    is tokenised as START:script / DATA:"<script>x" / END:script. The inner
-    text before a *stray* dangerous close tag must also be suppressed — we do
-    this by recording a "fence" index into self.out when we open a dangerous
-    element and rolling back to that fence if we encounter a stray dangerous
-    close (skip_depth == 0 at close time, meaning content leaked out).
+    is tokenised as START:script / DATA:"<script>x" / END:script. That yields
+    one extra dangerous close tag, after which inner text can leak out at depth
+    0. We record the output length at each normal dangerous close (_last_close_
+    fence) and, on a *stray* close, roll back to it — removing only the leaked
+    content, not unrelated markup that came before any dangerous element.
     """
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.out: list = []
         self._skip_depth = 0
-        # Stack of (tag, fence_index) pushed each time we open a dangerous tag.
-        self._dangerous_stack: list = []
+        self._dangerous_stack: list = []  # tag names of open dangerous elements
+        self._last_close_fence = None     # out length at the most recent dangerous close
 
     def handle_starttag(self, tag, attrs):
         if tag in _DANGEROUS_TAGS:
             if tag not in _VOID_TAGS:
                 self._skip_depth += 1
-                self._dangerous_stack.append((tag, len(self.out)))
+                self._dangerous_stack.append(tag)
             return
         if self._skip_depth:
             return
@@ -74,21 +74,17 @@ class _DangerousStripper(HTMLParser):
         if tag in _DANGEROUS_TAGS:
             if tag not in _VOID_TAGS:
                 if self._skip_depth:
-                    # Normal close: pop the matching fence.
+                    # Normal close of an open dangerous element.
                     self._skip_depth -= 1
-                    if self._dangerous_stack and self._dangerous_stack[-1][0] == tag:
+                    if self._dangerous_stack and self._dangerous_stack[-1] == tag:
                         self._dangerous_stack.pop()
-                else:
-                    # Stray close: content between the previous dangerous close
-                    # and here was emitted at depth 0 but belongs to the outer
-                    # dangerous element (RAWTEXT parser quirk). Roll it back.
-                    if self._dangerous_stack:
-                        _, fence = self._dangerous_stack.pop()
-                        del self.out[fence:]
-                    else:
-                        # No matching open seen — clear everything emitted so
-                        # far to be conservative.
-                        self.out.clear()
+                    self._last_close_fence = len(self.out)
+                elif self._last_close_fence is not None:
+                    # Stray close caused by the RAWTEXT quirk: drop only the text
+                    # that leaked since the most recent dangerous close.
+                    del self.out[self._last_close_fence:]
+                # else: a stray close with no prior dangerous element — ignore it
+                # rather than destroying unrelated content that came before.
             return
         if self._skip_depth:
             return
