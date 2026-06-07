@@ -7,6 +7,7 @@ const readerPdf = document.getElementById("reader-pdf");
 const tabFolders = document.getElementById("tab-folders");
 const tabFiles = document.getElementById("tab-files");
 const readerText = document.getElementById("reader-text");
+const readerImage = document.getElementById("reader-image");
 const searchbar = document.getElementById("searchbar");
 const appEl = document.getElementById("app");
 const archiveBtn = document.getElementById("archive-images");
@@ -84,7 +85,8 @@ function setActive(container, el) {
 function pageUrl(page) {
   const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) });
   if (browseMode === "files") {
-    params.set("category", activeCategory || "");
+    if (activeCategory) params.set("category", activeCategory);
+    if (currentQuery) params.set("q", currentQuery);
     return `/api/files?${params.toString()}`;
   }
   if (activeLabel) params.set("label", activeLabel);
@@ -124,7 +126,7 @@ function renderLoadMore(lastCount) {
 async function reload() {
   currentPage = 1;
   messageList.innerHTML = "";
-  if (browseMode === "files" && !activeCategory) return;  // pick a category first
+  if (browseMode === "files" && !activeCategory && !currentQuery) return;  // need a category or a query
   try {
     const data = await getJSON(pageUrl(1));
     appendRows(data.messages || data.files || []);
@@ -148,16 +150,26 @@ function viewPdf(id, idx) {
   readerPdf.hidden = false;
   readerBody.hidden = true;
   readerText.hidden = true;
+  readerImage.hidden = true; readerImage.removeAttribute("src");
 }
 
 async function openFile(mid, idx, filename, mime, size) {
   currentOpenId = mid;
-  readerPdf.hidden = true; readerPdf.removeAttribute("src");
   readerBody.hidden = true; readerBody.srcdoc = "";
-  readerText.hidden = false;
+  readerPdf.hidden = true; readerPdf.removeAttribute("src");
   readerHeader.innerHTML = `<div class="subject">${escapeHtml(filename || "(no name)")}</div>
     <div class="meta">${escapeHtml(mime || "")} · ${humanSize(size)}</div>`;
-  readerAtt.innerHTML = `<a href="/api/messages/${mid}/attachments/${idx}" download>Download</a>`;
+  readerAtt.innerHTML =
+    `<a href="/api/messages/${mid}/attachments/${idx}" download>Download</a>` +
+    ` <button type="button" class="open-email" onclick="openEmailFromFile(${mid})">Open email</button>`;
+  if ((mime || "").toLowerCase().startsWith("image/")) {
+    readerText.hidden = true; readerText.textContent = "";
+    readerImage.src = `/api/messages/${mid}/attachments/${idx}?inline=1`;
+    readerImage.hidden = false;
+    return;
+  }
+  readerImage.hidden = true; readerImage.removeAttribute("src");
+  readerText.hidden = false;
   readerText.textContent = "Loading…";
   try {
     const d = await getJSON(`/api/files/${mid}/${idx}/text`);
@@ -168,12 +180,18 @@ async function openFile(mid, idx, filename, mime, size) {
   }
 }
 
+function openEmailFromFile(mid) {
+  setMode("folders");
+  openMessage(mid);
+}
+
 async function openMessage(id, allowRemote = false) {
   currentOpenId = id;
   readerPdf.hidden = true;
   readerPdf.removeAttribute("src");
   readerBody.hidden = false;
   readerText.hidden = true;
+  readerImage.hidden = true; readerImage.removeAttribute("src");
   try {
     const m = await getJSON(`/api/messages/${id}?allow_remote=${allowRemote}`);
     const remoteBtn = allowRemote ? "" : `<button id="load-remote" type="button">Load remote images</button>`;
@@ -253,13 +271,15 @@ function setMode(mode) {
   activeLabel = null;
   tabFolders.classList.toggle("active", mode === "folders");
   tabFiles.classList.toggle("active", mode === "files");
+  currentQuery = "";
+  q.value = "";
   appEl.classList.remove("folders-collapsed");
-  searchbar.style.display = (mode === "files") ? "none" : "";
   readerHeader.innerHTML = "";
   readerAtt.innerHTML = "";
   readerBody.srcdoc = ""; readerBody.hidden = (mode === "files");
   readerPdf.hidden = true; readerPdf.removeAttribute("src");
   readerText.hidden = true; readerText.textContent = "";
+  readerImage.hidden = true; readerImage.removeAttribute("src");
   refreshLeft();
   reload();
 }
