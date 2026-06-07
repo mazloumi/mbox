@@ -3,8 +3,13 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
+# Conservative host substrings strongly associated with open-tracking. The reliable
+# signal is the 1x1 dimension check in is_tracking_pixel; this list is a secondary catch
+# for dimensionless trackers. We deliberately avoid broad substrings like "open." or
+# "px." that would also match legitimate image hosts (a false positive silently drops a
+# real image from the archive), favoring email-specific tracker domains and clear prefixes.
 TRACKER_HOSTS = (
-    "track.", "tracking.", "click.", "open.", "px.", "pixel.", "beacon.",
+    "track.", "tracking.", "click.", "pixel.", "beacon.",
     "list-manage.com", "sendgrid.net", "mailgun.org", "sparkpostmail.com",
 )
 
