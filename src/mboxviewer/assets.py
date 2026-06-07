@@ -124,3 +124,27 @@ def read_asset_bytes(archive_dir, h):
             return f.read()
     except OSError:
         return None
+
+
+def rewrite_cached_images(html, cached_hashes):
+    """Replace remote <img src> and CSS url() whose url_hash is in cached_hashes with
+    the local /api/asset/<hash> endpoint. Leaves uncached refs untouched."""
+    if not html or not cached_hashes:
+        return html or ""
+
+    def repl_src(m):
+        prefix, quote, url = m.group(1), m.group(2), m.group(3)
+        h = url_hash(normalize_url(url))
+        if h in cached_hashes:
+            return f"{prefix}{quote}/api/asset/{h}{quote}"
+        return m.group(0)
+
+    def repl_css(m):
+        h = url_hash(normalize_url(m.group(1)))
+        if h in cached_hashes:
+            return f'url("/api/asset/{h}")'
+        return m.group(0)
+
+    html = re.sub(r'(\ssrc\s*=\s*)(["\'])((?:https?:)?//[^"\']*)\2', repl_src, html, flags=re.IGNORECASE)
+    html = re.sub(r'url\(\s*["\']?\s*((?:https?:)?//[^)"\']+)["\']?\s*\)', repl_css, html, flags=re.IGNORECASE)
+    return html

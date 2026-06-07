@@ -67,3 +67,31 @@ def test_asset_byte_cache_roundtrip(tmp_path):
     assert read_asset_bytes(archive_dir, "missing") is None
     assert assets_dir(archive_dir).endswith("assets")
     assert asset_path(archive_dir, "abc123").endswith("assets/abc123")
+
+
+from mboxviewer.assets import rewrite_cached_images
+
+
+def test_rewrite_replaces_only_cached():
+    cached_url = "https://a.example/cached.png"
+    uncached_url = "https://b.example/uncached.png"
+    h = url_hash(cached_url)
+    html = (f'<img src="{cached_url}">'
+            f'<img src="{uncached_url}">'
+            f'<div style="background:url({cached_url})"></div>')
+    out = rewrite_cached_images(html, {h})
+    assert f'/api/asset/{h}' in out
+    assert cached_url not in out
+    assert uncached_url in out
+
+
+def test_rewrite_handles_protocol_relative():
+    url = "//c.example/p.png"
+    h = url_hash(normalize_url(url))
+    out = rewrite_cached_images(f'<img src="{url}">', {h})
+    assert f'/api/asset/{h}' in out
+
+
+def test_rewrite_noop_when_nothing_cached():
+    html = '<img src="https://a.example/x.png">'
+    assert rewrite_cached_images(html, set()) == html
