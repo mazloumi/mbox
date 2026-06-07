@@ -235,6 +235,11 @@ def test_files_unknown_category_empty(client):
     assert client.get("/api/files", params={"category": "Nope"}).json()["files"] == []
 
 
+def test_files_unknown_category_with_query_still_empty(client):
+    # An unknown category with a query must NOT fall through to a global search.
+    assert client.get("/api/files", params={"category": "Nope", "q": "invoice"}).json()["files"] == []
+
+
 def test_file_text_endpoint(client):
     data = client.get("/api/files", params={"category": "Documents"}).json()
     pdf = next(f for f in data["files"] if f["filename"] == "invoice.pdf")
