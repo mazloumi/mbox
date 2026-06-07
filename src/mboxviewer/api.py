@@ -15,6 +15,9 @@ from .reader import read_message, iter_attachments, get_display_body
 from .sanitize import sanitize_html
 from .indexer import build_index, index_is_current
 from .status import IndexStatus
+from . import assets
+from .assetstore import AssetStore
+from .archive import ArchiveStatus, run_archive
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -69,6 +72,13 @@ def create_app(settings, index_in_background=True):
     app.state.settings = settings
     app.state.status = status
 
+    asset_store = AssetStore(settings.archive_dir)
+    asset_store.create_schema()
+    archive_status = ArchiveStatus()
+    archive_lock = threading.Lock()
+    app.state.asset_store = asset_store
+    app.state.archive_status = archive_status
+
     def _run_index():
         try:
             bytes_total = os.path.getsize(settings.mbox_path)
@@ -122,6 +132,12 @@ def create_app(settings, index_in_background=True):
         except FileNotFoundError:
             raise HTTPException(503, "mbox file not available")
         mime, content = get_display_body(msg)
+        if mime == "text/html":
+            refs = assets.extract_image_refs(content)
+            if refs:
+                cached = asset_store.cached_asset_hashes({assets.url_hash(u) for (u, _, _) in refs})
+                if cached:
+                    content = assets.rewrite_cached_images(content, cached)
         body_html = _render_body(mime, content, allow_remote=allow_remote)
         atts = [{"idx": a["idx"], "filename": a["filename"], "mime": a["mime"], "size": a["size"]}
                 for a in store.get_attachments(message_id)]
@@ -146,6 +162,35 @@ def create_app(settings, index_in_background=True):
                         "X-Content-Type-Options": "nosniff",
                     })
         raise HTTPException(404, "attachment not found")
+
+    @app.post("/api/archive/start")
+    def archive_start():
+        with archive_lock:
+            if archive_status.running():
+                return {"started": False}
+            archive_status.mark_running()
+            threading.Thread(target=run_archive,
+                             args=(settings, store, asset_store, archive_status),
+                             daemon=True).start()
+            return {"started": True}
+
+    @app.get("/api/archive/status")
+    def archive_status_route():
+        return archive_status.snapshot()
+
+    @app.get("/api/asset/{asset_hash}")
+    def get_asset(asset_hash: str):
+        if not re.fullmatch(r"[0-9a-f]{64}", asset_hash):
+            raise HTTPException(404, "not found")
+        row = asset_store.get_asset(asset_hash)
+        if row is None or row["status"] != "ok":
+            raise HTTPException(404, "not cached")
+        data = assets.read_asset_bytes(settings.archive_dir, asset_hash)
+        if data is None:
+            raise HTTPException(404, "asset missing")
+        return Response(
+            content=data, media_type=row["content_type"] or "application/octet-stream",
+            headers={"Content-Disposition": "inline", "X-Content-Type-Options": "nosniff"})
 
     @app.get("/")
     def index():

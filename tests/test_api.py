@@ -1,4 +1,7 @@
+import io as _io
 import time
+from email.message import EmailMessage
+from email.generator import BytesGenerator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,8 +11,61 @@ from mboxviewer.api import create_app, _render_body, _content_disposition
 
 @pytest.fixture
 def client(tmp_path, sample_mbox):
-    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
     return TestClient(create_app(settings, index_in_background=False))
+
+
+def _client_for_html(tmp_path, html):
+    m = EmailMessage()
+    m["Subject"] = "img"; m["From"] = "a@x.com"; m["To"] = "b@x.com"
+    m["Date"] = "Mon, 01 Jan 2024 10:00:00 +0000"; m["X-Gmail-Labels"] = "Inbox"
+    m.set_content("body"); m.add_alternative(html, subtype="html")
+    buf = _io.BytesIO(); BytesGenerator(buf).flatten(m); data = buf.getvalue()
+    p = tmp_path / "img.mbox"
+    p.write_bytes(b"From - x\n" + data + (b"" if data.endswith(b"\n") else b"\n") + b"\n")
+    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
+    return TestClient(create_app(settings, index_in_background=False)), settings
+
+
+def test_archive_status_idle(client):
+    s = client.get("/api/archive/status").json()
+    assert s["running"] is False and s["downloaded"] == 0
+
+
+def test_archive_start_returns_started(client):
+    assert client.post("/api/archive/start").json()["started"] in (True, False)
+
+
+def test_asset_endpoint_serves_cached_bytes(tmp_path):
+    from mboxviewer import assets
+    c, settings = _client_for_html(tmp_path, '<p>hi</p>')
+    h = assets.url_hash("https://x.example/logo.png")
+    astore = c.app.state.asset_store
+    assets.write_asset_bytes(settings.archive_dir, h, b"IMGDATA")
+    astore.upsert_asset(h, "https://x.example/logo.png", "image/png", 7, None, None, "ok", None, "t")
+    astore.commit()
+    r = c.get(f"/api/asset/{h}")
+    assert r.status_code == 200 and r.content == b"IMGDATA"
+    assert r.headers["content-type"].startswith("image/png")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert c.get("/api/asset/" + "0" * 64).status_code == 404
+    assert c.get("/api/asset/not-hex").status_code == 404
+
+
+def test_message_detail_rewrites_cached_image(tmp_path):
+    from mboxviewer import assets
+    url = "https://x.example/logo.png"
+    c, settings = _client_for_html(tmp_path, f'<img src="{url}">')
+    h = assets.url_hash(url)
+    astore = c.app.state.asset_store
+    assets.write_asset_bytes(settings.archive_dir, h, b"IMGDATA")
+    astore.upsert_asset(h, url, "image/png", 7, None, None, "ok", None, "t")
+    astore.commit()
+    mid = c.get("/api/messages", params={"label": "Inbox"}).json()["messages"][0]["id"]
+    body = c.get(f"/api/messages/{mid}").json()["body_html"]
+    assert f"/api/asset/{h}" in body and url not in body
 
 
 def test_labels_endpoint(client):
@@ -72,7 +128,8 @@ def test_content_disposition_non_ascii():
 
 
 def test_status_ready_after_sync_index(tmp_path, sample_mbox):
-    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
     c = TestClient(create_app(settings, index_in_background=False))
     s = c.get("/api/status").json()
     assert s["ready"] is True and s["indexing"] is False
@@ -80,7 +137,8 @@ def test_status_ready_after_sync_index(tmp_path, sample_mbox):
 
 
 def test_status_background_eventually_ready(tmp_path, sample_mbox):
-    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
     c = TestClient(create_app(settings))  # background (default)
     s = {}
     for _ in range(100):
@@ -92,7 +150,8 @@ def test_status_background_eventually_ready(tmp_path, sample_mbox):
 
 
 def test_status_ready_on_reused_index(tmp_path, sample_mbox):
-    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
     TestClient(create_app(settings, index_in_background=False))  # build once
     c = TestClient(create_app(settings, index_in_background=False))  # reuse
     s = c.get("/api/status").json()
@@ -132,7 +191,8 @@ def test_inline_forced_to_attachment_for_unsafe_mime(tmp_path):
     buf = io.BytesIO(); BytesGenerator(buf).flatten(m); data = buf.getvalue()
     p = tmp_path / "h.mbox"
     p.write_bytes(b"From - x\n" + data + (b"" if data.endswith(b"\n") else b"\n") + b"\n")
-    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"))
+    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
     c = TestClient(create_app(settings, index_in_background=False))
     mid = c.get("/api/messages").json()["messages"][0]["id"]
     r = c.get(f"/api/messages/{mid}/attachments/0", params={"inline": "true"})
