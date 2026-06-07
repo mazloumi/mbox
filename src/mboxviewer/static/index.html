@@ -9,7 +9,8 @@
   <header id="header">
     <span id="logo">📬 mbox viewer</span>
     <span id="header-actions">
-      <button id="toggle-folders" type="button" title="Show/hide folders">☰ Folders</button>
+      <button id="tab-folders" type="button" class="tab active" title="Browse Gmail labels">Folders</button>
+    <button id="tab-files" type="button" class="tab" title="Browse attachments by type">Files</button>
       <button id="archive-images" type="button" title="Download remote images for offline viewing">Archive remote images</button>
     </span>
   </header>
@@ -26,6 +27,7 @@
       <div id="reader-attachments"></div>
       <iframe id="reader-body" sandbox=""></iframe>
       <iframe id="reader-pdf" hidden></iframe>
+      <pre id="reader-text" hidden></pre>
     </section>
   </div>
   <footer id="footer">

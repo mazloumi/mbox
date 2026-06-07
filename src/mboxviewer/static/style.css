@@ -11,8 +11,6 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 .count { color: #999; float: right; font-size: 11px; }
 .subject { font-weight: 600; font-size: 12.5px; }
 .meta { color: #777; font-size: 11px; }
-#toggle-folders { font-size: 12px; line-height: 1.4; padding: 2px 8px; cursor: pointer;
-  background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
 #app.folders-collapsed { grid-template-columns: 360px 1fr; }
 #app.folders-collapsed #labels { display: none; }
 #searchbar { padding: 10px; border-bottom: 1px solid #ddd; }
@@ -42,3 +40,8 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 /* Separator only BETWEEN populated segments — no stray dots around empty/last ones. */
 #footer span:not(:empty) ~ span:not(:empty)::before { content: "·"; margin: 0 10px; color: #bbb; }
 #footer .err { color: #b00020; }
+.tab { font-size: 12px; line-height: 1.4; padding: 2px 10px; margin-left: 6px; cursor: pointer;
+  background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
+.tab.active { background: #e7efff; border-color: #9bb8e8; font-weight: 600; }
+#reader-text { flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap;
+  word-break: break-word; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; border-top: 1px solid #ddd; }
