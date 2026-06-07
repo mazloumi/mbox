@@ -2,15 +2,20 @@
 body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
 #app { display: grid; grid-template-columns: 220px 360px 1fr; flex: 1; min-height: 0; }
 #labels, #list { border-right: 1px solid #ddd; overflow-y: auto; }
-#labels { padding: 0 12px; }
-#labels h2 { font-size: 13px; text-transform: uppercase; color: #666; }
+#labels { padding: 0 10px; }
+#labels h2 { font-size: 11px; text-transform: uppercase; color: #666; margin: 10px 0 6px; }
 #label-list, #message-list { list-style: none; margin: 0; padding: 0; }
-#label-list li, #message-list li { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+#label-list li, #message-list li { padding: 5px 10px; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-size: 12px; }
 #label-list li:hover, #message-list li:hover { background: #f5f7ff; }
 #label-list li.active, #message-list li.active { background: #e7efff; }
-.count { color: #999; float: right; font-size: 12px; }
-.subject { font-weight: 600; }
-.meta { color: #777; font-size: 12px; }
+.count { color: #999; float: right; font-size: 11px; }
+.subject { font-weight: 600; font-size: 12.5px; }
+.meta { color: #777; font-size: 11px; }
+#toolbar { padding: 3px 6px; border-bottom: 1px solid #eee; }
+#toggle-folders { font-size: 12px; line-height: 1.4; padding: 2px 8px; cursor: pointer;
+  background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
+#app.folders-collapsed { grid-template-columns: 360px 1fr; }
+#app.folders-collapsed #labels { display: none; }
 #searchbar { padding: 10px; border-bottom: 1px solid #ddd; }
 #q { width: 100%; padding: 6px 8px; }
 #reader { display: flex; flex-direction: column; }

@@ -5,6 +5,8 @@ const readerAtt = document.getElementById("reader-attachments");
 const readerBody = document.getElementById("reader-body");
 const readerPdf = document.getElementById("reader-pdf");
 const statusBar = document.getElementById("status-bar");
+const toggleFolders = document.getElementById("toggle-folders");
+const appEl = document.getElementById("app");
 const q = document.getElementById("q");
 
 const PAGE_SIZE = 50;
@@ -118,7 +120,10 @@ async function openMessage(id, allowRemote = false) {
         ? ` <button type="button" class="view-pdf" onclick="viewPdf(${id}, ${a.idx})">View</button>` : "";
       return `<span class="att">${dl}${view}</span>`;
     }).join("");
-    readerBody.srcdoc = m.body_html;
+    // Blocked remote images have an empty src (the backend blanks them); hide them
+    // so the reader shows text instead of broken-image icons. "Load remote images"
+    // re-fetches with real (non-empty) src values, which this rule does not match.
+    readerBody.srcdoc = '<style>img[src=""], img:not([src]) { display: none }</style>' + m.body_html;
     const btn = document.getElementById("load-remote");
     if (btn) btn.onclick = () => openMessage(id, true);
   } catch (err) {
@@ -168,6 +173,35 @@ let searchTimer;
 q.addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => { currentQuery = q.value.trim(); reload(); }, 250);
+});
+
+// --- Collapsible folder column (persisted) ---
+function applyFoldersCollapsed(collapsed) {
+  appEl.classList.toggle("folders-collapsed", collapsed);
+}
+toggleFolders.addEventListener("click", () => {
+  const collapsed = !appEl.classList.contains("folders-collapsed");
+  applyFoldersCollapsed(collapsed);
+  try { localStorage.setItem("foldersCollapsed", collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+});
+try { applyFoldersCollapsed(localStorage.getItem("foldersCollapsed") === "1"); } catch (e) { /* ignore */ }
+
+// --- Arrow-key navigation between emails in the list ---
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA") return;  // don't hijack typing in search
+  const items = Array.from(messageList.querySelectorAll("li")).filter(li => li.id !== "load-more");
+  if (items.length === 0) return;
+  const current = messageList.querySelector("li.active");
+  let idx = current ? items.indexOf(current) : -1;
+  idx = e.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+  const target = items[idx];
+  if (target) {
+    e.preventDefault();
+    target.click();  // reuses the row handler: setActive + openMessage
+    target.scrollIntoView({ block: "nearest" });
+  }
 });
 
 pollStatus();
