@@ -104,8 +104,10 @@ def test_list_files_by_mimes_search(tmp_path, sample_mbox):
     # no-mime + query searches across all files
     cross = s.list_files_by_mimes([], 50, 0, query="invoice")
     assert any(f["filename"] == "invoice.pdf" for f in cross)
-    # garbage query (no usable FTS terms) falls back to filename LIKE → no crash
+    # punctuation-only query matches no filename and no FTS rows → empty, no crash
     assert s.list_files_by_mimes(allmimes, 50, 0, query="!!!") == []
+    # whitespace-only query is treated as no query → the mime filter still applies
+    assert [f["filename"] for f in s.list_files_by_mimes([pdf], 50, 0, query="   ")] == ["invoice.pdf"]
     # no mimes and no query → empty
     assert s.list_files_by_mimes([], 50, 0, query=None) == []
 
