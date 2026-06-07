@@ -225,12 +225,12 @@ async function pollArchive() {
       setTimeout(pollArchive, 2000);
     } else {
       archiveBtn.disabled = false;
-      const a = s.archived || { ok: 0, skipped: 0, failed: 0, total: 0 };
+      const a = s.archived || { ok: 0, skipped: 0, failed: 0, gave_up: 0, total: 0 };
       if (!a.total) {
         archiveStateEl.textContent = "Images: not archived yet";
       } else {
         const breakdown = `Images: ${n(a.total)} total · ${n(a.ok)} archived · ` +
-          `${n(a.skipped)} skipped · ${n(a.failed)} failed`;
+          `${n(a.skipped)} skipped · ${n(a.failed)} failed · ${n(a.gave_up)} unreachable`;
         archiveStateEl.textContent = breakdown + (s.up_to_date ? " ✓" : " · click to update");
       }
     }
