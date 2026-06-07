@@ -243,6 +243,20 @@ def test_file_text_endpoint(client):
     assert client.get("/api/files/999999/0/text").status_code == 404
 
 
+def test_files_search_within_category(client):
+    data = client.get("/api/files", params={"category": "Documents", "q": "invoice"}).json()
+    assert [f["filename"] for f in data["files"]] == ["invoice.pdf"]
+
+
+def test_files_search_no_category(client):
+    data = client.get("/api/files", params={"q": "invoice"}).json()
+    assert any(f["filename"] == "invoice.pdf" for f in data["files"])
+
+
+def test_files_no_category_no_query_empty(client):
+    assert client.get("/api/files").json()["files"] == []
+
+
 def test_archive_status_includes_persisted_state(tmp_path, image_server):
     from mboxviewer.archive import ArchiveStatus, run_archive
     base, _ = image_server
