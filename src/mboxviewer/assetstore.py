@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS assets (
   size INTEGER,
   width INTEGER,
   height INTEGER,
-  status TEXT,
+  status TEXT NOT NULL,
   error TEXT,
   fetched_at TEXT
 );
