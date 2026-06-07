@@ -105,6 +105,7 @@ def test_attachment_inline_disposition(client):
     assert r.status_code == 200
     assert r.headers["content-disposition"].startswith("inline")
     assert r.headers["content-type"] == "application/pdf"
+    assert r.headers["x-content-type-options"] == "nosniff"
 
 
 def test_attachment_default_disposition(client):
@@ -116,3 +117,24 @@ def test_attachment_default_disposition(client):
 def test_content_disposition_inline_flag():
     assert _content_disposition("a.pdf", inline=True).startswith('inline; filename="a.pdf"')
     assert _content_disposition("a.pdf").startswith("attachment;")
+
+
+def test_inline_forced_to_attachment_for_unsafe_mime(tmp_path):
+    import io
+    from email.message import EmailMessage
+    from email.generator import BytesGenerator
+    m = EmailMessage()
+    m["Subject"] = "x"; m["From"] = "a@x.com"; m["To"] = "b@x.com"
+    m["Date"] = "Mon, 01 Jan 2024 10:00:00 +0000"; m["X-Gmail-Labels"] = "Inbox"
+    m.set_content("body")
+    m.add_attachment(b"<script>alert(1)</script>", maintype="text", subtype="html",
+                     filename="evil.html")
+    buf = io.BytesIO(); BytesGenerator(buf).flatten(m); data = buf.getvalue()
+    p = tmp_path / "h.mbox"
+    p.write_bytes(b"From - x\n" + data + (b"" if data.endswith(b"\n") else b"\n") + b"\n")
+    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"))
+    c = TestClient(create_app(settings, index_in_background=False))
+    mid = c.get("/api/messages").json()["messages"][0]["id"]
+    r = c.get(f"/api/messages/{mid}/attachments/0", params={"inline": "true"})
+    assert r.headers["content-disposition"].startswith("attachment")  # forced, not inline
+    assert r.headers["x-content-type-options"] == "nosniff"

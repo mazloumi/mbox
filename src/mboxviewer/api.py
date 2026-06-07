@@ -1,6 +1,7 @@
 import html
 import os
 import re
+import sys
 import threading
 import urllib.parse
 from typing import Optional
@@ -18,6 +19,14 @@ from .status import IndexStatus
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+# Only these MIME types may be served with an inline Content-Disposition. Anything
+# else (e.g. text/html, image/svg+xml) is forced to attachment to prevent the
+# browser from rendering attacker-controlled content same-origin (XSS).
+_SAFE_INLINE_MIMES = frozenset({
+    "application/pdf",
+    "image/png", "image/jpeg", "image/gif", "image/webp",
+})
 
 
 def _msg_summary(row):
@@ -64,7 +73,11 @@ def create_app(settings, index_in_background=True):
             status.update(n, bytes_total)
             status.finish()
         except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
+            sys.stderr.write(f"Indexing failed: {exc}\n")
             status.fail(exc)
+        except BaseException as exc:  # interrupted (SystemExit/etc.): don't get stuck
+            status.fail(RuntimeError(f"indexer interrupted: {exc}"))
+            raise
 
     if index_is_current(settings, store):
         status.mark_ready(store.message_count())
@@ -121,9 +134,13 @@ def create_app(settings, index_in_background=True):
             raise HTTPException(503, "mbox file not available")
         for a_idx, filename, mime, payload in iter_attachments(msg):
             if a_idx == idx:
+                safe_inline = inline and mime in _SAFE_INLINE_MIMES
                 return Response(
                     content=payload, media_type=mime,
-                    headers={"Content-Disposition": _content_disposition(filename, inline=inline)})
+                    headers={
+                        "Content-Disposition": _content_disposition(filename, inline=safe_inline),
+                        "X-Content-Type-Options": "nosniff",
+                    })
         raise HTTPException(404, "attachment not found")
 
     @app.get("/")
