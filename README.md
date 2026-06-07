@@ -66,11 +66,12 @@ To stop the viewer, press `Ctrl+C` in the terminal (or run `docker compose down`
 If you prefer not to use the script:
 
 1. Copy `.env.example` to `.env` and set `MBOX_FILE` to the **absolute path** of your
-   `.mbox` file:
+   `.mbox` file (and optionally `ARCHIVE_HOST_DIR`, the durable image-archive folder):
 
    ```bash
    cp .env.example .env
-   # then edit .env and set MBOX_FILE=/absolute/path/to/your.mbox
+   # then edit .env: set MBOX_FILE=/absolute/path/to/your.mbox
+   #                 (optionally) ARCHIVE_HOST_DIR=/absolute/path/to/archive
    ```
 
 2. Build and start:
@@ -115,8 +116,8 @@ The search index is disposable — it rebuilds from the mbox. The **remote image
 archive** is not (it can only be re-created over the network), so it lives in a
 separate **host folder** (`ARCHIVE_HOST_DIR`, by default a `mbox-viewer-archive/`
 folder next to your mbox) holding `archive.db` + `assets/`. Click **"Archive remote
-images"** in the viewer to download them (tracking pixels are skipped; set `HTTPS_PROXY`
-to route through a VPN).
+images"** in the viewer to download them (tracking pixels and SVG/XML images are skipped;
+set `HTTPS_PROXY` to route through a VPN).
 
 Your complete offline copy is **the mbox file + the archive folder**. Back up those two
 and you can delete the originals in Gmail, drop/rebuild the index, or move machines —
@@ -141,5 +142,8 @@ Then open http://localhost:9000.
 |--------------|------------------|--------------------|----------------------------------------------------|
 | `MBOX_FILE`  | host (compose)   | `/path/to/your-mail.mbox` | Absolute path to your `.mbox` file on the host |
 | `PORT`       | host (compose)   | `9000`             | Host port to expose the viewer on                  |
+| `ARCHIVE_HOST_DIR` | host (compose) | `mbox-viewer-archive/` next to the mbox (via `run.sh`) | Durable host folder for the offline image archive |
 | `MBOX_PATH`  | container        | `/data/mail.mbox`  | Path to the mbox inside the container              |
 | `INDEX_PATH` | container        | `/index/index.db`  | Path to the SQLite index inside the container      |
+| `ARCHIVE_DIR`| container        | `/archive`         | Path to the image archive inside the container     |
+| `HTTPS_PROXY`| host/container   | —                  | Optional proxy for the image-archive downloader (privacy) |

@@ -6,7 +6,7 @@ services:
     volumes:
       - "${MBOX_FILE:-/path/to/your-mail.mbox}:/data/mail.mbox:ro"
       - mbox-index:/index
-      - "${ARCHIVE_HOST_DIR:-./archive}:/archive"
+      - "${ARCHIVE_HOST_DIR:-./mbox-viewer-archive}:/archive"
     environment:
       - MBOX_PATH=/data/mail.mbox
       - INDEX_PATH=/index/index.db
