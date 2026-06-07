@@ -89,7 +89,9 @@ def test_archive_retries_then_gives_up(tmp_path, image_server):
     run_archive(settings, store, astore, ArchiveStatus())   # attempt 3 -> give up
     assert astore.asset_status(h) == "gave_up"
     hits = requested.count("/fail.png")
-    run_archive(settings, store, astore, ArchiveStatus())   # terminal -> short-circuit
+    status4 = ArchiveStatus()
+    run_archive(settings, store, astore, status4)           # terminal -> short-circuit
+    assert status4.snapshot()["messages_scanned"] == 0      # proves the short-circuit fired
     assert requested.count("/fail.png") == hits             # not requested again
     counts = astore.asset_counts()
     assert counts["failed"] == 0 and counts["gave_up"] == 1
