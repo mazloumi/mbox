@@ -5,7 +5,10 @@ const readerAtt = document.getElementById("reader-attachments");
 const readerBody = document.getElementById("reader-body");
 const q = document.getElementById("q");
 
+const PAGE_SIZE = 50;
 let activeLabel = null;
+let currentQuery = "";   // "" = browse mode; non-empty = search mode
+let currentPage = 1;
 
 async function getJSON(url) {
   const resp = await fetch(url);
@@ -25,7 +28,7 @@ async function loadLabels() {
     for (const l of labels) {
       const li = document.createElement("li");
       li.innerHTML = `${escapeHtml(l.name)}<span class="count">${escapeHtml(String(l.count))}</span>`;
-      li.onclick = () => { activeLabel = l.name; setActive(labelList, li); loadMessages(); };
+      li.onclick = () => { activeLabel = l.name; setActive(labelList, li); reload(); };
       labelList.appendChild(li);
     }
   } catch (err) {
@@ -38,8 +41,14 @@ function setActive(container, el) {
   el.classList.add("active");
 }
 
-function renderMessages(messages) {
-  messageList.innerHTML = "";
+function pageUrl(page) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) });
+  if (activeLabel) params.set("label", activeLabel);
+  if (currentQuery) { params.set("q", currentQuery); return `/api/search?${params.toString()}`; }
+  return `/api/messages?${params.toString()}`;
+}
+
+function appendMessages(messages) {
   for (const m of messages) {
     const li = document.createElement("li");
     li.innerHTML = `<div class="subject">${escapeHtml(m.subject || "(no subject)")}</div>
@@ -47,37 +56,55 @@ function renderMessages(messages) {
     li.onclick = () => { setActive(messageList, li); openMessage(m.id); };
     messageList.appendChild(li);
   }
+  renderLoadMore(messages.length);
 }
 
-async function loadMessages() {
-  const url = activeLabel ? `/api/messages?label=${encodeURIComponent(activeLabel)}` : "/api/messages";
+function renderLoadMore(lastCount) {
+  const existing = document.getElementById("load-more");
+  if (existing) existing.remove();
+  // A full page implies there may be more; a short page means we reached the end.
+  if (lastCount === PAGE_SIZE) {
+    const li = document.createElement("li");
+    li.id = "load-more";
+    li.textContent = "Load more…";
+    li.onclick = loadNextPage;
+    messageList.appendChild(li);
+  }
+}
+
+async function reload() {
+  currentPage = 1;
+  messageList.innerHTML = "";
   try {
-    renderMessages((await getJSON(url)).messages);
+    const data = await getJSON(pageUrl(1));
+    appendMessages(data.messages);
   } catch (err) {
     messageList.innerHTML = `<li>Failed to load messages: ${escapeHtml(String(err.message))}</li>`;
   }
 }
 
-async function runSearch() {
-  const term = q.value.trim();
-  if (!term) return loadMessages();
-  const url = `/api/search?q=${encodeURIComponent(term)}` +
-    (activeLabel ? `&label=${encodeURIComponent(activeLabel)}` : "");
+async function loadNextPage() {
+  currentPage += 1;
   try {
-    renderMessages((await getJSON(url)).messages);
+    const data = await getJSON(pageUrl(currentPage));
+    appendMessages(data.messages);
   } catch (err) {
-    messageList.innerHTML = `<li>Search failed: ${escapeHtml(String(err.message))}</li>`;
+    renderLoadMore(0);
   }
 }
 
-async function openMessage(id) {
+async function openMessage(id, allowRemote = false) {
   try {
-    const m = await getJSON(`/api/messages/${id}`);
+    const m = await getJSON(`/api/messages/${id}?allow_remote=${allowRemote}`);
+    const remoteBtn = allowRemote ? "" : `<button id="load-remote" type="button">Load remote images</button>`;
     readerHeader.innerHTML = `<div class="subject">${escapeHtml(m.subject || "(no subject)")}</div>
-      <div class="meta">From: ${escapeHtml(m.from || "")}<br>To: ${escapeHtml(m.to || "")}<br>${escapeHtml(m.date || "")}</div>`;
+      <div class="meta">From: ${escapeHtml(m.from || "")}<br>To: ${escapeHtml(m.to || "")}<br>${escapeHtml(m.date || "")}</div>
+      ${remoteBtn}`;
     readerAtt.innerHTML = (m.attachments || []).map(a =>
       `<a href="/api/messages/${id}/attachments/${a.idx}">${escapeHtml(a.filename)} (${escapeHtml(String(a.size))}b)</a>`).join("");
     readerBody.srcdoc = m.body_html;
+    const btn = document.getElementById("load-remote");
+    if (btn) btn.onclick = () => openMessage(id, true);
   } catch (err) {
     readerHeader.innerHTML = `<div class="meta">Failed to open message: ${escapeHtml(String(err.message))}</div>`;
     readerAtt.innerHTML = "";
@@ -86,7 +113,10 @@ async function openMessage(id) {
 }
 
 let searchTimer;
-q.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); });
+q.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { currentQuery = q.value.trim(); reload(); }, 250);
+});
 
 loadLabels();
-loadMessages();
+reload();

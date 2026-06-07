@@ -19,3 +19,5 @@ body { margin: 0; font-family: system-ui, sans-serif; }
 #reader-attachments a { display: inline-block; margin-right: 8px; padding: 4px 8px;
   background: #eef; border-radius: 4px; text-decoration: none; font-size: 13px; }
 #reader-body { flex: 1; border: 0; width: 100%; }
+#load-more { text-align: center; color: #36c; font-weight: 600; }
+#load-remote { margin-top: 8px; font-size: 12px; padding: 3px 8px; cursor: pointer; }
