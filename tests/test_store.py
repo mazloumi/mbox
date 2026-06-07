@@ -87,6 +87,31 @@ def test_attachment_mime_counts_and_files(tmp_path, sample_mbox):
     assert s.list_files_by_mimes([], 10, 0) == []
 
 
+def test_list_files_by_mimes_search(tmp_path, sample_mbox):
+    from mboxviewer.config import Settings
+    from mboxviewer.indexer import build_index
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    s = Store(settings.index_path); s.create_schema(); build_index(settings, s)
+    pdf = "application/pdf"
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    allmimes = [pdf, docx]
+    # filename match
+    by_name = s.list_files_by_mimes(allmimes, 50, 0, query="invoice")
+    assert [f["filename"] for f in by_name] == ["invoice.pdf"]
+    # content match: a term inside the indexed PDF text (see conftest sample body/attachment)
+    by_content = s.list_files_by_mimes([pdf], 50, 0, query="12345")
+    assert any(f["filename"] == "invoice.pdf" for f in by_content)
+    # no-mime + query searches across all files
+    cross = s.list_files_by_mimes([], 50, 0, query="invoice")
+    assert any(f["filename"] == "invoice.pdf" for f in cross)
+    # punctuation-only query matches no filename and no FTS rows → empty, no crash
+    assert s.list_files_by_mimes(allmimes, 50, 0, query="!!!") == []
+    # whitespace-only query is treated as no query → the mime filter still applies
+    assert [f["filename"] for f in s.list_files_by_mimes([pdf], 50, 0, query="   ")] == ["invoice.pdf"]
+    # no mimes and no query → empty
+    assert s.list_files_by_mimes([], 50, 0, query=None) == []
+
+
 def test_reads_work_from_another_thread(tmp_path):
     s = Store(str(tmp_path / "i.db"))
     s.create_schema()

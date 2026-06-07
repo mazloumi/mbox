@@ -235,12 +235,31 @@ def test_files_unknown_category_empty(client):
     assert client.get("/api/files", params={"category": "Nope"}).json()["files"] == []
 
 
+def test_files_unknown_category_with_query_still_empty(client):
+    # An unknown category with a query must NOT fall through to a global search.
+    assert client.get("/api/files", params={"category": "Nope", "q": "invoice"}).json()["files"] == []
+
+
 def test_file_text_endpoint(client):
     data = client.get("/api/files", params={"category": "Documents"}).json()
     pdf = next(f for f in data["files"] if f["filename"] == "invoice.pdf")
     t = client.get(f"/api/files/{pdf['message_id']}/{pdf['idx']}/text").json()
     assert t["filename"] == "invoice.pdf" and "12345" in t["text"]
     assert client.get("/api/files/999999/0/text").status_code == 404
+
+
+def test_files_search_within_category(client):
+    data = client.get("/api/files", params={"category": "Documents", "q": "invoice"}).json()
+    assert [f["filename"] for f in data["files"]] == ["invoice.pdf"]
+
+
+def test_files_search_no_category(client):
+    data = client.get("/api/files", params={"q": "invoice"}).json()
+    assert any(f["filename"] == "invoice.pdf" for f in data["files"])
+
+
+def test_files_no_category_no_query_empty(client):
+    assert client.get("/api/files").json()["files"] == []
 
 
 def test_archive_status_includes_persisted_state(tmp_path, image_server):

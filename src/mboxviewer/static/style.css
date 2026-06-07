@@ -25,7 +25,7 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 #load-remote { margin-top: 8px; font-size: 12px; padding: 3px 8px; cursor: pointer; }
 #reader-pdf { flex: 1; border: 0; width: 100%; border-top: 1px solid #ddd; }
 .att { display: inline-block; margin-right: 10px; }
-.view-pdf { margin-left: 4px; font-size: 12px; cursor: pointer; }
+.view-pdf, .open-email { margin-left: 4px; font-size: 12px; cursor: pointer; }
 #archive-images { font-size: 12px; line-height: 1.4; padding: 2px 8px;
   cursor: pointer; background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
 #archive-images:disabled { opacity: 0.6; cursor: default; }
@@ -45,3 +45,5 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 .tab.active { background: #e7efff; border-color: #9bb8e8; font-weight: 600; }
 #reader-text { flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap;
   word-break: break-word; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; border-top: 1px solid #ddd; }
+#reader-image { flex: 1; min-height: 0; max-width: 100%; object-fit: contain;
+  margin: 0; padding: 12px; align-self: center; }
