@@ -19,7 +19,15 @@ machine — nothing is uploaded anywhere and the source file is never modified.
 
 ## Quick start (recommended)
 
-Use the launch script and point it at your mbox file (or the folder containing it):
+A default mbox path and port are pre-configured (see "Configuration reference"
+below), so you can just run:
+
+```bash
+./run.sh
+```
+
+To use a different file, point the launch script at your mbox file (or the folder
+containing it):
 
 ```bash
 ./run.sh /absolute/path/to/your.mbox
@@ -38,13 +46,13 @@ Or pass the path as an environment variable instead of an argument:
 MBOX_FILE=/absolute/path/to/your.mbox ./run.sh
 ```
 
-Change the host port (default `8000`) with the `PORT` variable:
+Change the host port (default `9000`) with the `PORT` variable:
 
 ```bash
-PORT=9000 ./run.sh /absolute/path/to/your.mbox
+PORT=9500 ./run.sh /absolute/path/to/your.mbox
 ```
 
-Then open **http://localhost:8000** (or your chosen port).
+Then open **http://localhost:9000** (or your chosen port).
 
 > On the **first** run the app indexes the whole mbox before serving. For a large
 > (10GB+) file this can take several minutes — watch the terminal logs for
@@ -71,12 +79,12 @@ If you prefer not to use the script:
    docker compose up --build
    ```
 
-3. Open http://localhost:8000
+3. Open http://localhost:9000
 
 How the mount works: the compose file bind-mounts your `MBOX_FILE` to
 `/data/mail.mbox` **read-only** inside the container, and stores the search index in
-the named volume `mbox-index` mounted at `/index`. `PORT` (default `8000`) sets the
-host port; the container always listens on `8000` internally.
+the named volume `mbox-index` mounted at `/index`. `PORT` (default `9000`) sets the
+host port; the container always listens on `9000` internally.
 
 ## Using the viewer
 
@@ -111,13 +119,13 @@ PYTHONPATH=src MBOX_PATH=/path/to/your.mbox INDEX_PATH=./index.db \
   .venv/bin/python -m mboxviewer.main
 ```
 
-Then open http://localhost:8000.
+Then open http://localhost:9000.
 
 ## Configuration reference
 
 | Variable     | Where            | Default            | Meaning                                            |
 |--------------|------------------|--------------------|----------------------------------------------------|
-| `MBOX_FILE`  | host (compose)   | — (required)       | Absolute path to your `.mbox` file on the host     |
-| `PORT`       | host (compose)   | `8000`             | Host port to expose the viewer on                  |
+| `MBOX_FILE`  | host (compose)   | `/path/to/your-mail.mbox` | Absolute path to your `.mbox` file on the host |
+| `PORT`       | host (compose)   | `9000`             | Host port to expose the viewer on                  |
 | `MBOX_PATH`  | container        | `/data/mail.mbox`  | Path to the mbox inside the container              |
 | `INDEX_PATH` | container        | `/index/index.db`  | Path to the SQLite index inside the container      |

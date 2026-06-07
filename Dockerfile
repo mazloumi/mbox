@@ -8,7 +8,7 @@ COPY src/ ./src/
 ENV PYTHONPATH=/app/src \
     MBOX_PATH=/data/mail.mbox \
     INDEX_PATH=/index/index.db \
-    PORT=8000
+    PORT=9000
 
-EXPOSE 8000
+EXPOSE 9000
 CMD ["python", "-m", "mboxviewer.main"]

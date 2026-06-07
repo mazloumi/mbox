@@ -9,24 +9,28 @@
 #   MBOX_FILE=/path/to/your.mbox ./run.sh     # or via environment variable
 #
 # Optional:
-#   PORT=9000 ./run.sh /path/to/your.mbox     # change the host port (default 8000)
+#   PORT=9500 ./run.sh /path/to/your.mbox     # change the host port (default 9000)
 #
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# 1. Resolve the mbox path from the first argument or the MBOX_FILE env var.
-MBOX_INPUT="${1:-${MBOX_FILE:-}}"
+# Default mbox path (override with an argument or the MBOX_FILE env var).
+DEFAULT_MBOX="/path/to/your-mail.mbox"
+
+# 1. Resolve the mbox path from the first argument, the MBOX_FILE env var, or the default.
+MBOX_INPUT="${1:-${MBOX_FILE:-$DEFAULT_MBOX}}"
 if [ -z "$MBOX_INPUT" ]; then
   cat >&2 <<'USAGE'
 Error: no mbox path given.
 
 Usage:
+  ./run.sh                                  use the default mbox path
   ./run.sh /absolute/path/to/your.mbox      point at the .mbox file
   ./run.sh /absolute/path/to/folder         folder containing exactly one .mbox
   MBOX_FILE=/path/to/your.mbox ./run.sh     or via environment variable
 
 Optional:
-  PORT=9000 ./run.sh /path/to/your.mbox     change the host port (default 8000)
+  PORT=9500 ./run.sh /path/to/your.mbox     change the host port (default 9000)
 USAGE
   exit 1
 fi
@@ -56,7 +60,7 @@ fi
 
 # 3. Export for docker-compose and launch (build + run in the foreground).
 export MBOX_FILE="$RESOLVED"
-export PORT="${PORT:-8000}"
+export PORT="${PORT:-9000}"
 
 echo "mbox file : $MBOX_FILE"
 echo "viewer    : http://localhost:${PORT}"
