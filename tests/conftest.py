@@ -63,9 +63,10 @@ def sample_mbox(tmp_path):
     path = tmp_path / "sample.mbox"
     with open(path, "wb") as f:
         for m in (m1, m2):
+            data = _serialize(m)
             f.write(b"From - Mon Jan 01 10:00:00 2024\n")
-            f.write(_serialize(m))
-            if not _serialize(m).endswith(b"\n"):
+            f.write(data)
+            if not data.endswith(b"\n"):
                 f.write(b"\n")
             f.write(b"\n")
     return str(path)
