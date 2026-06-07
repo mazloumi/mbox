@@ -1,0 +1,131 @@
+import os
+import sqlite3
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY,
+  offset INTEGER NOT NULL,
+  length INTEGER NOT NULL,
+  message_id TEXT,
+  subject TEXT,
+  from_addr TEXT,
+  to_addr TEXT,
+  date TEXT,
+  date_raw TEXT
+);
+CREATE TABLE IF NOT EXISTS labels (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
+CREATE TABLE IF NOT EXISTS message_labels (
+  message_id INTEGER NOT NULL REFERENCES messages(id),
+  label_id INTEGER NOT NULL REFERENCES labels(id),
+  PRIMARY KEY (message_id, label_id)
+);
+CREATE TABLE IF NOT EXISTS attachments (
+  id INTEGER PRIMARY KEY,
+  message_id INTEGER NOT NULL REFERENCES messages(id),
+  idx INTEGER NOT NULL,
+  filename TEXT,
+  mime TEXT,
+  size INTEGER
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  subject, from_addr, to_addr, body, attachments, content=''
+);
+"""
+
+
+def _fts_query(q: str) -> str:
+    terms = [t for t in q.split() if t]
+    return " ".join('"' + t.replace('"', '""') + '"*' for t in terms)
+
+
+class Store:
+    def __init__(self, db_path: str):
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+
+    def create_schema(self):
+        self.conn.executescript(SCHEMA)
+        self.conn.commit()
+
+    def commit(self):
+        self.conn.commit()
+
+    def set_meta(self, key, value):
+        self.conn.execute(
+            "INSERT INTO meta(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+    def get_meta(self, key):
+        row = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def add_message(self, offset, length, message_id, subject, from_addr, to_addr, date, date_raw):
+        cur = self.conn.execute(
+            "INSERT INTO messages(offset,length,message_id,subject,from_addr,to_addr,date,date_raw)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (offset, length, message_id, subject, from_addr, to_addr, date, date_raw))
+        return cur.lastrowid
+
+    def add_label(self, name):
+        self.conn.execute("INSERT OR IGNORE INTO labels(name) VALUES(?)", (name,))
+        return self.conn.execute("SELECT id FROM labels WHERE name=?", (name,)).fetchone()["id"]
+
+    def link_label(self, message_id, label_id):
+        self.conn.execute(
+            "INSERT OR IGNORE INTO message_labels(message_id,label_id) VALUES(?,?)",
+            (message_id, label_id))
+
+    def add_attachment(self, message_id, idx, filename, mime, size):
+        self.conn.execute(
+            "INSERT INTO attachments(message_id,idx,filename,mime,size) VALUES(?,?,?,?,?)",
+            (message_id, idx, filename, mime, size))
+
+    def add_fts(self, rowid, subject, from_addr, to_addr, body, attachments):
+        self.conn.execute(
+            "INSERT INTO messages_fts(rowid,subject,from_addr,to_addr,body,attachments)"
+            " VALUES(?,?,?,?,?,?)", (rowid, subject, from_addr, to_addr, body, attachments))
+
+    def list_labels(self):
+        rows = self.conn.execute(
+            "SELECT l.name AS name, COUNT(*) AS c FROM labels l "
+            "JOIN message_labels ml ON ml.label_id=l.id GROUP BY l.id ORDER BY l.name").fetchall()
+        return [(r["name"], r["c"]) for r in rows]
+
+    def list_messages(self, label, limit, offset):
+        if label:
+            return self.conn.execute(
+                "SELECT m.* FROM messages m JOIN message_labels ml ON ml.message_id=m.id "
+                "JOIN labels l ON l.id=ml.label_id WHERE l.name=? "
+                "ORDER BY m.date DESC LIMIT ? OFFSET ?", (label, limit, offset)).fetchall()
+        return self.conn.execute(
+            "SELECT * FROM messages ORDER BY date DESC LIMIT ? OFFSET ?",
+            (limit, offset)).fetchall()
+
+    def search(self, query, label, limit, offset):
+        match = _fts_query(query)
+        if not match:
+            return []
+        if label:
+            sql = ("SELECT m.* FROM messages_fts f JOIN messages m ON m.id=f.rowid "
+                   "JOIN message_labels ml ON ml.message_id=m.id "
+                   "JOIN labels l ON l.id=ml.label_id "
+                   "WHERE l.name=? AND messages_fts MATCH ? ORDER BY rank LIMIT ? OFFSET ?")
+            params = (label, match, limit, offset)
+        else:
+            sql = ("SELECT m.* FROM messages_fts f JOIN messages m ON m.id=f.rowid "
+                   "WHERE messages_fts MATCH ? ORDER BY rank LIMIT ? OFFSET ?")
+            params = (match, limit, offset)
+        try:
+            return self.conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError:
+            return []
+
+    def get_message_row(self, message_id):
+        return self.conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
+
+    def get_attachments(self, message_id):
+        return self.conn.execute(
+            "SELECT * FROM attachments WHERE message_id=? ORDER BY idx", (message_id,)).fetchall()
