@@ -95,3 +95,14 @@ def test_rewrite_handles_protocol_relative():
 def test_rewrite_noop_when_nothing_cached():
     html = '<img src="https://a.example/x.png">'
     assert rewrite_cached_images(html, set()) == html
+
+
+def test_entity_encoded_query_url_is_canonical():
+    # Valid HTML encodes & as &amp; in attributes. Both extraction and rewrite must
+    # hash the DECODED url so a cached CDN image (with query params) gets rewritten.
+    raw = '<img src="https://cdn.example/i.png?w=800&amp;h=600">'
+    decoded = "https://cdn.example/i.png?w=800&h=600"
+    assert extract_image_refs(raw)[0][0] == decoded
+    h = url_hash(decoded)
+    out = rewrite_cached_images(raw, {h})
+    assert f"/api/asset/{h}" in out and "&amp;" not in out

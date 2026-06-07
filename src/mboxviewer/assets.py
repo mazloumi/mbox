@@ -4,6 +4,7 @@ import os
 import re
 import urllib.request
 from dataclasses import dataclass
+from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
@@ -23,7 +24,10 @@ def url_hash(url):
 
 
 def normalize_url(url):
-    url = (url or "").strip()
+    # Un-escape HTML entities (e.g. &amp; -> &) so a URL hashes identically whether it
+    # came from HTMLParser (which decodes attribute entities) or a raw-HTML regex, and
+    # so the fetched URL is the real one. Then resolve protocol-relative URLs.
+    url = unescape((url or "").strip())
     if url.startswith("//"):
         return "https:" + url
     return url
