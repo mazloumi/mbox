@@ -7,6 +7,8 @@ const readerPdf = document.getElementById("reader-pdf");
 const statusBar = document.getElementById("status-bar");
 const toggleFolders = document.getElementById("toggle-folders");
 const appEl = document.getElementById("app");
+const archiveBtn = document.getElementById("archive-images");
+const archiveStatusEl = document.getElementById("archive-status");
 const q = document.getElementById("q");
 
 const PAGE_SIZE = 50;
@@ -203,5 +205,41 @@ document.addEventListener("keydown", (e) => {
     target.scrollIntoView({ block: "nearest" });
   }
 });
+
+// --- Opt-in remote-image archiving ---
+async function pollArchive() {
+  try {
+    const s = await getJSON("/api/archive/status");
+    const n = (x) => Number(x).toLocaleString();
+    if (s.running) {
+      archiveBtn.disabled = true;
+      archiveStatusEl.textContent =
+        `Archiving images… ${n(s.messages_scanned)}/${n(s.total_messages)} · ` +
+        `${n(s.downloaded)} saved · ${n(s.skipped)} skipped · ${n(s.failed)} failed`;
+      setTimeout(pollArchive, 2000);
+    } else {
+      archiveBtn.disabled = false;
+      if (s.error) {
+        archiveStatusEl.textContent = "Archive failed: " + s.error;
+      } else if (s.downloaded || s.skipped || s.failed) {
+        archiveStatusEl.textContent =
+          `Archived: ${n(s.downloaded)} saved, ${n(s.skipped)} skipped, ${n(s.failed)} failed`;
+      }
+    }
+  } catch (e) { /* ignore transient errors */ }
+}
+
+archiveBtn.addEventListener("click", async () => {
+  const ok = confirm(
+    "Archive remote images for offline viewing?\n\n" +
+    "This downloads images from senders' servers so they display even when you're " +
+    "offline or the images are later removed. It may signal to senders that these " +
+    "emails were opened (your IP and the time). Tracking pixels are skipped.\n\nProceed?");
+  if (!ok) return;
+  try { await fetch("/api/archive/start", { method: "POST" }); } catch (e) { /* ignore */ }
+  pollArchive();
+});
+
+pollArchive();  // reflect any in-progress/finished archive on load
 
 pollStatus();
