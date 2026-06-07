@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 from mboxviewer.config import Settings
@@ -7,7 +9,7 @@ from mboxviewer.api import create_app, _render_body, _content_disposition
 @pytest.fixture
 def client(tmp_path, sample_mbox):
     settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
-    return TestClient(create_app(settings))
+    return TestClient(create_app(settings, index_in_background=False))
 
 
 def test_labels_endpoint(client):
@@ -67,3 +69,50 @@ def test_content_disposition_escapes_quote():
 def test_content_disposition_non_ascii():
     out = _content_disposition("résumé.pdf")
     assert "filename*=UTF-8''" in out and "r%C3%A9sum%C3%A9.pdf" in out
+
+
+def test_status_ready_after_sync_index(tmp_path, sample_mbox):
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    c = TestClient(create_app(settings, index_in_background=False))
+    s = c.get("/api/status").json()
+    assert s["ready"] is True and s["indexing"] is False
+    assert s["messages"] == 2 and s["percent"] == 100.0 and s["error"] is None
+
+
+def test_status_background_eventually_ready(tmp_path, sample_mbox):
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    c = TestClient(create_app(settings))  # background (default)
+    s = {}
+    for _ in range(100):
+        s = c.get("/api/status").json()
+        if s["ready"]:
+            break
+        time.sleep(0.05)
+    assert s["ready"] is True and s["messages"] == 2
+
+
+def test_status_ready_on_reused_index(tmp_path, sample_mbox):
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    TestClient(create_app(settings, index_in_background=False))  # build once
+    c = TestClient(create_app(settings, index_in_background=False))  # reuse
+    s = c.get("/api/status").json()
+    assert s["ready"] is True and s["messages"] == 2
+
+
+def test_attachment_inline_disposition(client):
+    mid = client.get("/api/messages", params={"label": "Important"}).json()["messages"][0]["id"]
+    r = client.get(f"/api/messages/{mid}/attachments/0", params={"inline": "true"})
+    assert r.status_code == 200
+    assert r.headers["content-disposition"].startswith("inline")
+    assert r.headers["content-type"] == "application/pdf"
+
+
+def test_attachment_default_disposition(client):
+    mid = client.get("/api/messages", params={"label": "Important"}).json()["messages"][0]["id"]
+    r = client.get(f"/api/messages/{mid}/attachments/0")
+    assert r.headers["content-disposition"].startswith("attachment")
+
+
+def test_content_disposition_inline_flag():
+    assert _content_disposition("a.pdf", inline=True).startswith('inline; filename="a.pdf"')
+    assert _content_disposition("a.pdf").startswith("attachment;")
