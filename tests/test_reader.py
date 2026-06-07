@@ -33,3 +33,20 @@ def test_display_body_prefers_html(sample_mbox):
     msg = read_message(sample_mbox, *spans[0])
     mime, content = get_display_body(msg)
     assert mime == "text/html" and "<b>Bob</b>" in content
+
+
+def test_read_message_unescapes_mboxrd_from(tmp_path):
+    raw = (
+        b"From - Mon Jan 01 10:00:00 2024\n"
+        b"Subject: t\n"
+        b"\n"
+        b">From the savings\n"
+        b">>From nested\n"
+    )
+    p = tmp_path / "m.mbox"
+    p.write_bytes(raw)
+    spans = list(iter_message_spans(str(p)))
+    msg = read_message(str(p), *spans[0])
+    body = msg.get_content()
+    assert "From the savings" in body and ">From the savings" not in body
+    assert ">From nested" in body

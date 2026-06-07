@@ -1,4 +1,5 @@
 import email
+import re
 from email import policy
 
 
@@ -33,6 +34,7 @@ def read_message(path, offset, length):
     nl = raw.find(b"\n")
     if raw.startswith(b"From ") and nl != -1:
         raw = raw[nl + 1:]
+    raw = re.sub(rb"(?m)^>(>*From )", rb"\1", raw)
     return email.message_from_bytes(raw, policy=policy.default)
 
 
@@ -51,7 +53,10 @@ def iter_attachments(msg):
         disposition = part.get_content_disposition()
         filename = part.get_filename()
         if disposition == "attachment" or (filename and disposition != "inline"):
-            payload = part.get_payload(decode=True) or b""
+            try:
+                payload = part.get_payload(decode=True) or b""
+            except Exception:
+                payload = b""
             yield idx, filename or f"attachment-{idx}", part.get_content_type(), payload
             idx += 1
 
@@ -61,4 +66,7 @@ def get_display_body(msg):
     body = msg.get_body(preferencelist=("html", "plain"))
     if body is None:
         return ("text/plain", "")
-    return (body.get_content_type(), body.get_content())
+    try:
+        return (body.get_content_type(), body.get_content())
+    except Exception:
+        return ("text/plain", "")
