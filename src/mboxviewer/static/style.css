@@ -25,7 +25,7 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 #load-remote { margin-top: 8px; font-size: 12px; padding: 3px 8px; cursor: pointer; }
 #reader-pdf { flex: 1; border: 0; width: 100%; border-top: 1px solid #ddd; }
 .att { display: inline-block; margin-right: 10px; }
-.view-pdf { margin-left: 4px; font-size: 12px; cursor: pointer; }
+.view-pdf, .open-email { margin-left: 4px; font-size: 12px; cursor: pointer; }
 #archive-images { font-size: 12px; line-height: 1.4; padding: 2px 8px;
   cursor: pointer; background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
 #archive-images:disabled { opacity: 0.6; cursor: default; }

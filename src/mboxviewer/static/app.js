@@ -8,7 +8,6 @@ const tabFolders = document.getElementById("tab-folders");
 const tabFiles = document.getElementById("tab-files");
 const readerText = document.getElementById("reader-text");
 const readerImage = document.getElementById("reader-image");
-const searchbar = document.getElementById("searchbar");
 const appEl = document.getElementById("app");
 const archiveBtn = document.getElementById("archive-images");
 const mboxNameEl = document.getElementById("mbox-name");
