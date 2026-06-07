@@ -8,6 +8,7 @@ from .reader import read_message, get_display_body
 from .assets import extract_image_refs, is_tracking_pixel, fetch_image, url_hash, write_asset_bytes
 
 MAX_WORKERS = 12
+MAX_FETCH_ATTEMPTS = 3
 
 
 def _now():
@@ -111,7 +112,7 @@ def run_archive(settings, store, asset_store, status):
                             continue
                         seen.add(h)
                         status.inc_urls_seen()
-                        if asset_store.asset_status(h) in ("ok", "skipped"):
+                        if asset_store.asset_status(h) in ("ok", "skipped", "gave_up"):
                             continue
                         if is_tracking_pixel(url, width, height):
                             asset_store.upsert_asset(h, url, None, None, width, height, "skipped", None, _now())
@@ -140,7 +141,10 @@ def run_archive(settings, store, asset_store, status):
                     asset_store.upsert_asset(h, url, None, None, width, height, "skipped", res.error, _now())
                     status.inc_skipped()
                 else:
-                    asset_store.upsert_asset(h, url, None, None, width, height, "failed", res.error, _now())
+                    attempts = asset_store.get_attempts(h) + 1
+                    failed_status = "gave_up" if attempts >= MAX_FETCH_ATTEMPTS else "failed"
+                    asset_store.upsert_asset(h, url, None, None, width, height, failed_status,
+                                             res.error, _now(), attempts=attempts)
                     status.inc_failed()
         asset_store.commit()
         asset_store.set_archive_meta(cur_size, cur_mtime)

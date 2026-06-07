@@ -83,6 +83,13 @@ def image_server():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             requested.append(self.path)
+            if self.path.startswith("/fail"):
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", "5")
+                self.end_headers()
+                self.wfile.write(b"error")
+                return
             if self.path.startswith("/notimage"):
                 body, ctype = b"<html>nope</html>", "text/html"
             elif self.path.startswith("/svg"):

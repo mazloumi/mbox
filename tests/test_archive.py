@@ -76,3 +76,20 @@ def test_archive_resumable_and_short_circuits(tmp_path, image_server):
     assert requested == []
     s = status2.snapshot()
     assert s["running"] is False and s["messages_scanned"] == 0 and s["downloaded"] == 1
+
+
+def test_archive_retries_then_gives_up(tmp_path, image_server):
+    base, requested = image_server
+    settings, store, astore = _setup(tmp_path, _mbox_with_html(tmp_path, f'<img src="{base}/fail.png">'))
+    h = url_hash(f"{base}/fail.png")
+    run_archive(settings, store, astore, ArchiveStatus())   # attempt 1
+    assert astore.asset_status(h) == "failed"
+    run_archive(settings, store, astore, ArchiveStatus())   # attempt 2
+    assert astore.asset_status(h) == "failed"
+    run_archive(settings, store, astore, ArchiveStatus())   # attempt 3 -> give up
+    assert astore.asset_status(h) == "gave_up"
+    hits = requested.count("/fail.png")
+    run_archive(settings, store, astore, ArchiveStatus())   # terminal -> short-circuit
+    assert requested.count("/fail.png") == hits             # not requested again
+    counts = astore.asset_counts()
+    assert counts["failed"] == 0 and counts["gave_up"] == 1
