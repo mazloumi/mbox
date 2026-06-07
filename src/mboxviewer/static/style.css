@@ -47,3 +47,12 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
   word-break: break-word; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; border-top: 1px solid #ddd; }
 #reader-image { flex: 1; min-height: 0; max-width: 100%; object-fit: contain;
   margin: 0; padding: 12px; align-self: center; }
+#reader-audio { width: 100%; padding: 12px; box-sizing: border-box; }
+#reader-video { flex: 1; min-height: 0; max-width: 100%; object-fit: contain; margin: 0;
+  padding: 12px; align-self: center; background: #000; }
+#reader-table { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+#reader-table table { border-collapse: collapse; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+#reader-table th, #reader-table td { border: 1px solid #ddd; padding: 2px 6px; text-align: left;
+  white-space: nowrap; }
+#reader-table th { position: sticky; top: 0; background: #f3f3f3; }
+#reader-table .csv-note { font-family: sans-serif; color: #777; padding: 6px 2px; }
