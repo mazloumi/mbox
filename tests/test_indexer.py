@@ -38,6 +38,17 @@ def test_index_records_attachments(tmp_path, sample_mbox):
     assert atts[0]["filename"] == "invoice.pdf"
 
 
+def test_index_is_current_false_when_mbox_missing(tmp_path, sample_mbox):
+    import os
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    store = Store(settings.index_path)
+    store.create_schema()
+    build_index(settings, store)
+    assert index_is_current(settings, store) is True
+    os.remove(sample_mbox)                          # mbox gone -> must not raise
+    assert index_is_current(settings, store) is False
+
+
 def test_index_is_current_detects_staleness(tmp_path, sample_mbox):
     settings, store, _ = _build(tmp_path, sample_mbox)
     assert index_is_current(settings, store) is True

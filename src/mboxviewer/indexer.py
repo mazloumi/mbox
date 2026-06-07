@@ -69,12 +69,14 @@ def build_index(settings, store, progress=None):
 
 
 def index_is_current(settings, store):
+    # Returns False (never raises) so callers — including the polled /api/status route —
+    # can't 500 when the mbox is missing/inaccessible or the meta read fails.
     try:
         size = store.get_meta("source_size")
         mtime = store.get_meta("source_mtime")
-    except Exception:
+        if size is None or mtime is None:
+            return False
+        return (size == str(os.path.getsize(settings.mbox_path))
+                and mtime == str(int(os.path.getmtime(settings.mbox_path))))
+    except Exception:  # noqa: BLE001 - never raise; a polled status route depends on this
         return False
-    if size is None or mtime is None:
-        return False
-    return (size == str(os.path.getsize(settings.mbox_path))
-            and mtime == str(int(os.path.getmtime(settings.mbox_path))))
