@@ -43,3 +43,26 @@ def test_index_is_current_detects_staleness(tmp_path, sample_mbox):
     assert index_is_current(settings, store) is True
     os.utime(sample_mbox, (0, 0))
     assert index_is_current(settings, store) is False
+
+
+def test_rebuild_does_not_duplicate(tmp_path, sample_mbox):
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    store = Store(settings.index_path)
+    store.create_schema()
+    assert build_index(settings, store) == 2
+    assert build_index(settings, store) == 2  # re-run must not duplicate
+    assert dict(store.list_labels())["Inbox"] == 2
+    assert len(store.list_messages(None, 100, 0)) == 2
+
+
+def test_failed_message_is_not_partially_indexed(tmp_path, sample_mbox, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("bad attachment")
+    monkeypatch.setattr("mboxviewer.indexer.extract_text", boom)
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    store = Store(settings.index_path)
+    store.create_schema()
+    count = build_index(settings, store)
+    assert count == 0                                   # both messages failed
+    assert store.list_messages(None, 100, 0) == []      # no orphan message rows
+    assert store.list_labels() == []                    # no orphan labels

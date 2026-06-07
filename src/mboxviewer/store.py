@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from contextlib import contextmanager
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -49,6 +50,32 @@ class Store:
     def create_schema(self):
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+
+    def clear(self):
+        """Remove all indexed data so an index can be rebuilt from scratch."""
+        self.conn.executescript(
+            "DELETE FROM message_labels;"
+            "DELETE FROM attachments;"
+            "DELETE FROM labels;"
+            "DELETE FROM messages;"
+            "DELETE FROM meta;")
+        # messages_fts is a contentless FTS5 table; the special 'delete-all'
+        # command is the supported way to empty it.
+        self.conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('delete-all')")
+        self.conn.commit()
+
+    @contextmanager
+    def savepoint(self):
+        """Per-unit transaction: on exception, roll back only this unit's writes."""
+        self.conn.execute("SAVEPOINT unit")
+        try:
+            yield
+        except Exception:
+            self.conn.execute("ROLLBACK TO SAVEPOINT unit")
+            self.conn.execute("RELEASE SAVEPOINT unit")
+            raise
+        else:
+            self.conn.execute("RELEASE SAVEPOINT unit")
 
     def commit(self):
         self.conn.commit()
