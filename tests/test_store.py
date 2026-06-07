@@ -35,6 +35,20 @@ def test_search_matches_body_and_attachment_text(tmp_path):
     assert s.search("nomatch", None, 10, 0) == []
 
 
+def test_search_respects_label_filter(tmp_path):
+    s = _store(tmp_path)
+    m_inbox = s.add_message(0, 10, "<a>", "Hello", "a@x.com", "b@x.com", "2024-01-01T10:00:00", "raw")
+    s.link_label(m_inbox, s.add_label("Inbox"))
+    s.add_fts(m_inbox, "Hello", "a@x.com", "b@x.com", "shared keyword", "")
+    m_work = s.add_message(10, 10, "<b>", "Hi", "c@x.com", "b@x.com", "2024-01-02T10:00:00", "raw")
+    s.link_label(m_work, s.add_label("Work"))
+    s.add_fts(m_work, "Hi", "c@x.com", "b@x.com", "shared keyword", "")
+    s.commit()
+    assert [r["id"] for r in s.search("keyword", "Inbox", 10, 0)] == [m_inbox]
+    assert [r["id"] for r in s.search("keyword", None, 10, 0)] == [m_inbox, m_work] or \
+           [r["id"] for r in s.search("keyword", None, 10, 0)] == [m_work, m_inbox]
+
+
 def test_get_message_and_attachments(tmp_path):
     s = _store(tmp_path)
     mid = s.add_message(5, 50, "<id>", "S", "a", "b", "2024-01-01T10:00:00", "raw")

@@ -120,8 +120,11 @@ class Store:
             params = (match, limit, offset)
         try:
             return self.conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError:
-            return []
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "no such table" in message or "fts5" in message or "syntax error" in message:
+                return []
+            raise
 
     def get_message_row(self, message_id):
         return self.conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
