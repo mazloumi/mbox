@@ -124,8 +124,8 @@ def run_archive(settings, store, asset_store, status):
         asset_store.commit()
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(fetch_image, url): (h, url, w, ht)
-                       for (h, url, w, ht) in to_download}
+            futures = {pool.submit(fetch_image, url): (h, url, width, height)
+                       for (h, url, width, height) in to_download}
             for future in as_completed(futures):
                 h, url, width, height = futures[future]
                 res = future.result()
