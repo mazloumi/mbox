@@ -109,6 +109,20 @@ docker compose down
 docker volume rm mbox-mbox-index   # volume name may be prefixed by the project dir
 ```
 
+## Durability & offline archive
+
+The search index is disposable — it rebuilds from the mbox. The **remote image
+archive** is not (it can only be re-created over the network), so it lives in a
+separate **host folder** (`ARCHIVE_HOST_DIR`, by default a `mbox-viewer-archive/`
+folder next to your mbox) holding `archive.db` + `assets/`. Click **"Archive remote
+images"** in the viewer to download them (tracking pixels are skipped; set `HTTPS_PROXY`
+to route through a VPN).
+
+Your complete offline copy is **the mbox file + the archive folder**. Back up those two
+and you can delete the originals in Gmail, drop/rebuild the index, or move machines —
+everything still renders offline. Re-running "Archive remote images" on an unchanged mbox
+is an instant no-op (it records the mbox size/mtime and skips re-downloading).
+
 ## Development (run without Docker)
 
 ```bash

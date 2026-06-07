@@ -8,6 +8,7 @@ COPY src/ ./src/
 ENV PYTHONPATH=/app/src \
     MBOX_PATH=/data/mail.mbox \
     INDEX_PATH=/index/index.db \
+    ARCHIVE_DIR=/archive \
     PORT=9000
 
 EXPOSE 9000

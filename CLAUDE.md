@@ -152,6 +152,11 @@ Docker: `./run.sh /path/to/your.mbox` (build + run). See `README.md`.
   contracts #7 above.
 - **Inline PDF viewing** — `?inline=1` (allowlisted, see contract #8) renders PDFs in a
   reader-pane `<iframe>` (`viewPdf` in `app.js`); download link kept.
+- **Durable remote-image archiving** — opt-in `POST /api/archive/start` downloads remote
+  images (skipping trackers and SVG/XML) into a separate host-folder archive (`AssetStore`
+  / `archive.db` + `assets/`, env `ARCHIVE_DIR`); `message_detail` rewrites cached remote
+  `<img>`/CSS `url()` to `/api/asset/{hash}`. Durable across index rebuilds; short-circuits
+  on an unchanged mbox. Backup unit = mbox + archive folder; the index is disposable.
 
 ## Known follow-ups (deliberately deferred)
 

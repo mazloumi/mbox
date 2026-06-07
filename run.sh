@@ -61,9 +61,13 @@ fi
 # 3. Export for docker-compose and launch (build + run in the foreground).
 export MBOX_FILE="$RESOLVED"
 export PORT="${PORT:-9000}"
+# Durable image archive: a host folder next to the mbox by default (override with ARCHIVE_HOST_DIR).
+export ARCHIVE_HOST_DIR="${ARCHIVE_HOST_DIR:-$(dirname "$RESOLVED")/mbox-viewer-archive}"
+mkdir -p "$ARCHIVE_HOST_DIR"
 
 echo "mbox file : $MBOX_FILE"
 echo "viewer    : http://localhost:${PORT}"
+echo "archive   : $ARCHIVE_HOST_DIR"
 echo "Building image and starting container..."
 echo "(First run indexes the mbox — this can take a while for large files; watch the logs.)"
 echo
