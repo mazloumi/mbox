@@ -81,7 +81,23 @@ def test_extract_xls():
     ws.write(0, 0, "Account"); ws.write(0, 1, "Balance"); ws.write(1, 0, "ACME"); ws.write(1, 1, 999)
     buf = io.BytesIO(); wb.save(buf)
     text = extract_text("d.xls", "application/vnd.ms-excel", buf.getvalue())
-    assert "ACME" in text and "999" in text
+    # whole numbers render as plain integers, not "999.0"
+    assert "ACME" in text and "999" in text and "999.0" not in text
+
+
+def test_extract_pptx_table():
+    import io
+    from pptx import Presentation
+    from pptx.util import Inches
+    from mboxviewer.extract import extract_text
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+    table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(2)).table
+    table.cell(0, 0).text = "MILESTONE"; table.cell(0, 1).text = "Q4 SHIP"
+    buf = io.BytesIO(); prs.save(buf)
+    mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    text = extract_text("d.pptx", mime, buf.getvalue())
+    assert "MILESTONE" in text and "Q4 SHIP" in text
 
 
 def test_extract_corrupt_office_returns_empty():

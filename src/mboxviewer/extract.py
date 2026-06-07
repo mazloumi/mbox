@@ -52,13 +52,24 @@ def _pptx_text(data: bytes) -> str:
         for shape in slide.shapes:
             if shape.has_text_frame:
                 parts.append(shape.text_frame.text)
-    return "\n".join(p for p in parts if p)
+            elif shape.has_table:  # text-frame check misses table cells
+                for trow in shape.table.rows:
+                    parts.append("\t".join(cell.text for cell in trow.cells))
+    return "\n".join(p for p in parts if p and p.strip())
+
+
+def _cell_str(c) -> str:
+    # Spreadsheet libs hand back whole numbers as floats (999 -> 999.0); render
+    # those as plain integers so the text reads naturally and searches cleanly.
+    if isinstance(c, float) and c.is_integer():
+        return str(int(c))
+    return str(c)
 
 
 def _rows_text(rows) -> str:
     out = []
     for row in rows:
-        cells = [str(c) for c in row if c is not None and str(c).strip() != ""]
+        cells = [s for s in (_cell_str(c) for c in row if c is not None) if s.strip()]
         if cells:
             out.append("\t".join(cells))
     return "\n".join(out)
