@@ -180,7 +180,9 @@ class Store:
             "SELECT mime, COUNT(*) AS c FROM attachments GROUP BY mime").fetchall()
 
     def list_files_by_mimes(self, mimes, limit, offset):
-        mimes = list(mimes)
+        # Drop NULLs: SQLite's `IN (NULL)` silently matches nothing, which would
+        # produce a degenerate query rather than an honest empty result.
+        mimes = [m for m in mimes if m is not None]
         if not mimes:
             return []
         placeholders = ",".join("?" * len(mimes))
