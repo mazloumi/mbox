@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from mboxviewer.config import Settings
-from mboxviewer.api import create_app
+from mboxviewer.api import create_app, _render_body, _content_disposition
 
 
 @pytest.fixture
@@ -44,3 +44,26 @@ def test_search_finds_attachment_text(client):
 
 def test_index_html_served(client):
     assert client.get("/").status_code == 200
+
+
+def test_render_body_escapes_plain_text():
+    out = _render_body("text/plain", "List<String> items")
+    assert "&lt;String&gt;" in out and "String" in out
+
+
+def test_render_body_sanitizes_html():
+    out = _render_body("text/html", "<b>hi</b><script>bad()</script>")
+    assert "<b>hi</b>" in out and "bad" not in out
+
+
+def test_content_disposition_ascii():
+    assert _content_disposition("invoice.pdf") == 'attachment; filename="invoice.pdf"'
+
+
+def test_content_disposition_escapes_quote():
+    assert '\\"' in _content_disposition('a"b.pdf')
+
+
+def test_content_disposition_non_ascii():
+    out = _content_disposition("résumé.pdf")
+    assert "filename*=UTF-8''" in out and "r%C3%A9sum%C3%A9.pdf" in out

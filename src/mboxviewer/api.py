@@ -1,4 +1,7 @@
+import html
 import os
+import re
+import urllib.parse
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -12,12 +15,41 @@ from .indexer import build_index, index_is_current
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
 
 def _msg_summary(row):
     return {
         "id": row["id"], "subject": row["subject"], "from": row["from_addr"],
         "to": row["to_addr"], "date": row["date"],
     }
+
+
+def _render_body(mime, content, allow_remote=False):
+    """Render an email body part to safe HTML.
+
+    HTML parts are sanitized; plain text is HTML-escaped and wrapped in <pre> so
+    sequences like ``List<String>`` are preserved instead of being parsed as tags.
+    """
+    if mime == "text/html":
+        return sanitize_html(content, allow_remote=allow_remote)
+    return "<pre>" + html.escape(content) + "</pre>"
+
+
+def _content_disposition(filename):
+    """Safe Content-Disposition value for an attachment download.
+
+    Strips control chars; uses a quoted ASCII filename when possible and RFC 5987
+    ``filename*=`` encoding for non-ASCII names (avoids 500s from header errors).
+    """
+    filename = _CONTROL_CHARS.sub("", filename or "") or "attachment"
+    try:
+        filename.encode("ascii")
+    except UnicodeEncodeError:
+        encoded = urllib.parse.quote(filename.encode("utf-8"))
+        return f"attachment; filename*=UTF-8''{encoded}"
+    safe = filename.replace("\\", "\\\\").replace('"', '\\"')
+    return f'attachment; filename="{safe}"'
 
 
 def create_app(settings):
@@ -36,13 +68,15 @@ def create_app(settings):
         return [{"name": n, "count": c} for n, c in store.list_labels()]
 
     @app.get("/api/messages")
-    def messages(label: Optional[str] = None, page: int = 1, page_size: int = 50):
+    def messages(label: Optional[str] = None,
+                 page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
         offset = (page - 1) * page_size
         rows = store.list_messages(label, page_size, offset)
         return {"messages": [_msg_summary(r) for r in rows], "page": page}
 
     @app.get("/api/search")
-    def search(q: str = Query(...), label: Optional[str] = None, page: int = 1, page_size: int = 50):
+    def search(q: str = Query(...), label: Optional[str] = None,
+               page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
         offset = (page - 1) * page_size
         rows = store.search(q, label, page_size, offset)
         return {"messages": [_msg_summary(r) for r in rows], "page": page}
@@ -52,10 +86,12 @@ def create_app(settings):
         row = store.get_message_row(message_id)
         if row is None:
             raise HTTPException(404, "message not found")
-        msg = read_message(settings.mbox_path, row["offset"], row["length"])
+        try:
+            msg = read_message(settings.mbox_path, row["offset"], row["length"])
+        except FileNotFoundError:
+            raise HTTPException(503, "mbox file not available")
         mime, content = get_display_body(msg)
-        body_html = sanitize_html(content if mime == "text/html" else
-                                  "<pre>" + content + "</pre>", allow_remote=allow_remote)
+        body_html = _render_body(mime, content, allow_remote=allow_remote)
         atts = [{"idx": a["idx"], "filename": a["filename"], "mime": a["mime"], "size": a["size"]}
                 for a in store.get_attachments(message_id)]
         return {**_msg_summary(row), "body_html": body_html, "attachments": atts}
@@ -65,12 +101,15 @@ def create_app(settings):
         row = store.get_message_row(message_id)
         if row is None:
             raise HTTPException(404, "message not found")
-        msg = read_message(settings.mbox_path, row["offset"], row["length"])
+        try:
+            msg = read_message(settings.mbox_path, row["offset"], row["length"])
+        except FileNotFoundError:
+            raise HTTPException(503, "mbox file not available")
         for a_idx, filename, mime, payload in iter_attachments(msg):
             if a_idx == idx:
                 return Response(
                     content=payload, media_type=mime,
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                    headers={"Content-Disposition": _content_disposition(filename)})
         raise HTTPException(404, "attachment not found")
 
     @app.get("/")
