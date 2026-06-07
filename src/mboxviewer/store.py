@@ -175,5 +175,24 @@ class Store:
         return self.conn.execute(
             "SELECT * FROM attachments WHERE message_id=? ORDER BY idx", (message_id,)).fetchall()
 
+    def attachment_mime_counts(self):
+        return self.conn.execute(
+            "SELECT mime, COUNT(*) AS c FROM attachments GROUP BY mime").fetchall()
+
+    def list_files_by_mimes(self, mimes, limit, offset):
+        # Drop NULLs: SQLite's `IN (NULL)` silently matches nothing, which would
+        # produce a degenerate query rather than an honest empty result.
+        mimes = [m for m in mimes if m is not None]
+        if not mimes:
+            return []
+        placeholders = ",".join("?" * len(mimes))
+        return self.conn.execute(
+            "SELECT a.message_id AS message_id, a.idx AS idx, a.filename AS filename,"
+            " a.size AS size, a.mime AS mime, m.subject AS subject, m.date AS date"
+            " FROM attachments a JOIN messages m ON m.id = a.message_id"
+            f" WHERE a.mime IN ({placeholders})"
+            " ORDER BY a.filename LIMIT ? OFFSET ?",
+            (*mimes, limit, offset)).fetchall()
+
     def all_message_spans(self):
         return self.conn.execute("SELECT offset, length FROM messages ORDER BY offset").fetchall()

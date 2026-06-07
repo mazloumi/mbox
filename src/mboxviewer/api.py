@@ -4,6 +4,7 @@ import re
 import sys
 import threading
 import urllib.parse
+from collections import Counter
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -16,8 +17,10 @@ from .sanitize import sanitize_html
 from .indexer import build_index, index_is_current
 from .status import IndexStatus
 from . import assets
+from . import filetypes
 from .assetstore import AssetStore
 from .archive import ArchiveStatus, run_archive
+from .extract import extract_text
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -206,6 +209,43 @@ def create_app(settings, index_in_background=True):
         return Response(
             content=data, media_type=row["content_type"] or "application/octet-stream",
             headers={"Content-Disposition": "inline", "X-Content-Type-Options": "nosniff"})
+
+    @app.get("/api/filetypes")
+    def filetypes_route():
+        counter = Counter()
+        for r in store.attachment_mime_counts():
+            counter[filetypes.category_for_mime(r["mime"])] += r["c"]
+        return [{"category": cat, "count": counter[cat]}
+                for cat in filetypes.CATEGORY_ORDER if counter[cat]]
+
+    @app.get("/api/files")
+    def files(category: str = Query(...),
+              page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
+        mimes = [r["mime"] for r in store.attachment_mime_counts()
+                 if filetypes.category_for_mime(r["mime"]) == category]
+        if not mimes:
+            return {"files": [], "page": page}
+        offset = (page - 1) * page_size
+        rows = store.list_files_by_mimes(mimes, page_size, offset)
+        return {"files": [{"message_id": r["message_id"], "idx": r["idx"],
+                           "filename": r["filename"], "size": r["size"], "mime": r["mime"],
+                           "subject": r["subject"], "date": r["date"]} for r in rows],
+                "page": page}
+
+    @app.get("/api/files/{message_id}/{idx}/text")
+    def file_text(message_id: int, idx: int):
+        row = store.get_message_row(message_id)
+        if row is None:
+            raise HTTPException(404, "message not found")
+        try:
+            msg = read_message(settings.mbox_path, row["offset"], row["length"])
+        except FileNotFoundError:
+            raise HTTPException(503, "mbox file not available")
+        for a_idx, filename, mime, payload in iter_attachments(msg):
+            if a_idx == idx:
+                return {"filename": filename, "mime": mime, "size": len(payload),
+                        "text": extract_text(filename, mime, payload)}
+        raise HTTPException(404, "attachment not found")
 
     @app.get("/")
     def index():

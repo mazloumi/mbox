@@ -4,7 +4,10 @@ const readerHeader = document.getElementById("reader-header");
 const readerAtt = document.getElementById("reader-attachments");
 const readerBody = document.getElementById("reader-body");
 const readerPdf = document.getElementById("reader-pdf");
-const toggleFolders = document.getElementById("toggle-folders");
+const tabFolders = document.getElementById("tab-folders");
+const tabFiles = document.getElementById("tab-files");
+const readerText = document.getElementById("reader-text");
+const searchbar = document.getElementById("searchbar");
 const appEl = document.getElementById("app");
 const archiveBtn = document.getElementById("archive-images");
 const mboxNameEl = document.getElementById("mbox-name");
@@ -14,6 +17,8 @@ const q = document.getElementById("q");
 
 const PAGE_SIZE = 50;
 let activeLabel = null;
+let browseMode = "folders";   // "folders" | "files"
+let activeCategory = null;
 let currentQuery = "";
 let currentPage = 1;
 let currentOpenId = null;
@@ -27,6 +32,33 @@ async function getJSON(url) {
 function escapeHtml(s) {
   return (s || "").replace(/[&<>"]/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function humanSize(bytes) {
+  const b = Number(bytes) || 0;
+  if (b < 1024) return b + " B";
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + " KB";
+  return (b / 1024 / 1024).toFixed(1) + " MB";
+}
+
+function refreshLeft() {
+  if (browseMode === "files") loadCategories();
+  else loadLabels();
+}
+
+async function loadCategories() {
+  try {
+    const cats = await getJSON("/api/filetypes");
+    labelList.innerHTML = "";
+    for (const c of cats) {
+      const li = document.createElement("li");
+      li.innerHTML = `${escapeHtml(c.category)}<span class="count">${escapeHtml(String(c.count))}</span>`;
+      li.onclick = () => { activeCategory = c.category; setActive(labelList, li); reload(); };
+      labelList.appendChild(li);
+    }
+  } catch (err) {
+    labelList.innerHTML = `<li>Failed to load file types: ${escapeHtml(String(err.message))}</li>`;
+  }
 }
 
 async function loadLabels() {
@@ -51,20 +83,30 @@ function setActive(container, el) {
 
 function pageUrl(page) {
   const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) });
+  if (browseMode === "files") {
+    params.set("category", activeCategory || "");
+    return `/api/files?${params.toString()}`;
+  }
   if (activeLabel) params.set("label", activeLabel);
   if (currentQuery) { params.set("q", currentQuery); return `/api/search?${params.toString()}`; }
   return `/api/messages?${params.toString()}`;
 }
 
-function appendMessages(messages) {
-  for (const m of messages) {
+function appendRows(items) {
+  for (const it of items) {
     const li = document.createElement("li");
-    li.innerHTML = `<div class="subject">${escapeHtml(m.subject || "(no subject)")}</div>
-      <div class="meta">${escapeHtml(m.from || "")} — ${escapeHtml((m.date || "").slice(0, 10))}</div>`;
-    li.onclick = () => { setActive(messageList, li); openMessage(m.id); };
+    if (browseMode === "files") {
+      li.innerHTML = `<div class="subject">${escapeHtml(it.filename || "(no name)")}</div>
+        <div class="meta">${escapeHtml(it.subject || "")} — ${humanSize(it.size)}</div>`;
+      li.onclick = () => { setActive(messageList, li); openFile(it.message_id, it.idx, it.filename, it.mime, it.size); };
+    } else {
+      li.innerHTML = `<div class="subject">${escapeHtml(it.subject || "(no subject)")}</div>
+        <div class="meta">${escapeHtml(it.from || "")} — ${escapeHtml((it.date || "").slice(0, 10))}</div>`;
+      li.onclick = () => { setActive(messageList, li); openMessage(it.id); };
+    }
     messageList.appendChild(li);
   }
-  renderLoadMore(messages.length);
+  renderLoadMore(items.length);
 }
 
 function renderLoadMore(lastCount) {
@@ -82,11 +124,12 @@ function renderLoadMore(lastCount) {
 async function reload() {
   currentPage = 1;
   messageList.innerHTML = "";
+  if (browseMode === "files" && !activeCategory) return;  // pick a category first
   try {
     const data = await getJSON(pageUrl(1));
-    appendMessages(data.messages);
+    appendRows(data.messages || data.files || []);
   } catch (err) {
-    messageList.innerHTML = `<li>Failed to load messages: ${escapeHtml(String(err.message))}</li>`;
+    messageList.innerHTML = `<li>Failed to load: ${escapeHtml(String(err.message))}</li>`;
   }
 }
 
@@ -94,7 +137,7 @@ async function loadNextPage() {
   currentPage += 1;
   try {
     const data = await getJSON(pageUrl(currentPage));
-    appendMessages(data.messages);
+    appendRows(data.messages || data.files || []);
   } catch (err) {
     renderLoadMore(0);
   }
@@ -104,6 +147,25 @@ function viewPdf(id, idx) {
   readerPdf.src = `/api/messages/${id}/attachments/${idx}?inline=1`;
   readerPdf.hidden = false;
   readerBody.hidden = true;
+  readerText.hidden = true;
+}
+
+async function openFile(mid, idx, filename, mime, size) {
+  currentOpenId = mid;
+  readerPdf.hidden = true; readerPdf.removeAttribute("src");
+  readerBody.hidden = true; readerBody.srcdoc = "";
+  readerText.hidden = false;
+  readerHeader.innerHTML = `<div class="subject">${escapeHtml(filename || "(no name)")}</div>
+    <div class="meta">${escapeHtml(mime || "")} · ${humanSize(size)}</div>`;
+  readerAtt.innerHTML = `<a href="/api/messages/${mid}/attachments/${idx}" download>Download</a>`;
+  readerText.textContent = "Loading…";
+  try {
+    const d = await getJSON(`/api/files/${mid}/${idx}/text`);
+    readerText.textContent = (d.text && d.text.trim())
+      ? d.text : "No extractable text for this file type.";
+  } catch (err) {
+    readerText.textContent = "Failed to load file text: " + err.message;
+  }
 }
 
 async function openMessage(id, allowRemote = false) {
@@ -111,6 +173,7 @@ async function openMessage(id, allowRemote = false) {
   readerPdf.hidden = true;
   readerPdf.removeAttribute("src");
   readerBody.hidden = false;
+  readerText.hidden = true;
   try {
     const m = await getJSON(`/api/messages/${id}?allow_remote=${allowRemote}`);
     const remoteBtn = allowRemote ? "" : `<button id="load-remote" type="button">Load remote images</button>`;
@@ -152,7 +215,7 @@ async function pollStatus() {
       indexStateEl.textContent =
         `Indexing… ${s.percent}% · ${Number(s.messages).toLocaleString()} messages`;
       if (pollTick % 5 === 0) {
-        loadLabels();
+        refreshLeft();
         if (currentOpenId === null) reload();
       }
       pollTick += 1;
@@ -161,7 +224,7 @@ async function pollStatus() {
       indexStateEl.textContent = s.current
         ? `Indexed ${Number(s.messages).toLocaleString()} messages`
         : "⚠ Source changed — restart to re-index";
-      loadLabels();
+      refreshLeft();
       if (currentOpenId === null) reload();
     }
   } catch (e) {
@@ -176,16 +239,40 @@ q.addEventListener("input", () => {
   searchTimer = setTimeout(() => { currentQuery = q.value.trim(); reload(); }, 250);
 });
 
-// --- Collapsible folder column (persisted) ---
-function applyFoldersCollapsed(collapsed) {
-  appEl.classList.toggle("folders-collapsed", collapsed);
-}
-toggleFolders.addEventListener("click", () => {
+// --- Folders/Files mode tabs + collapse (persisted) ---
+function toggleCollapse() {
   const collapsed = !appEl.classList.contains("folders-collapsed");
-  applyFoldersCollapsed(collapsed);
+  appEl.classList.toggle("folders-collapsed", collapsed);
   try { localStorage.setItem("foldersCollapsed", collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+}
+
+function setMode(mode) {
+  browseMode = mode;
+  currentOpenId = null;
+  activeCategory = null;
+  activeLabel = null;
+  tabFolders.classList.toggle("active", mode === "folders");
+  tabFiles.classList.toggle("active", mode === "files");
+  appEl.classList.remove("folders-collapsed");
+  searchbar.style.display = (mode === "files") ? "none" : "";
+  readerHeader.innerHTML = "";
+  readerAtt.innerHTML = "";
+  readerBody.srcdoc = ""; readerBody.hidden = (mode === "files");
+  readerPdf.hidden = true; readerPdf.removeAttribute("src");
+  readerText.hidden = true; readerText.textContent = "";
+  refreshLeft();
+  reload();
+}
+
+tabFolders.addEventListener("click", () => {
+  if (browseMode !== "folders") setMode("folders"); else toggleCollapse();
 });
-try { applyFoldersCollapsed(localStorage.getItem("foldersCollapsed") === "1"); } catch (e) { /* ignore */ }
+tabFiles.addEventListener("click", () => {
+  if (browseMode !== "files") setMode("files"); else toggleCollapse();
+});
+try {
+  if (localStorage.getItem("foldersCollapsed") === "1") appEl.classList.add("folders-collapsed");
+} catch (e) { /* ignore */ }
 
 // --- Arrow-key navigation between emails in the list ---
 document.addEventListener("keydown", (e) => {

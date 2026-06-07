@@ -71,6 +71,22 @@ def test_all_message_spans(tmp_path, sample_mbox):
     assert len(spans) == 2 and spans[0]["length"] > 0
 
 
+def test_attachment_mime_counts_and_files(tmp_path, sample_mbox):
+    from mboxviewer.config import Settings
+    from mboxviewer.indexer import build_index
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    s = Store(settings.index_path); s.create_schema(); build_index(settings, s)
+    counts = {r["mime"]: r["c"] for r in s.attachment_mime_counts()}
+    assert counts["application/pdf"] == 1
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert counts[docx] == 1
+    files = s.list_files_by_mimes(["application/pdf"], 10, 0)
+    assert len(files) == 1
+    assert files[0]["filename"] == "invoice.pdf"
+    assert files[0]["subject"] == "Welcome aboard" and files[0]["size"] > 0
+    assert s.list_files_by_mimes([], 10, 0) == []
+
+
 def test_reads_work_from_another_thread(tmp_path):
     s = Store(str(tmp_path / "i.db"))
     s.create_schema()
