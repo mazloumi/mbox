@@ -98,7 +98,13 @@ def image_server():
         def log_message(self, *args):
             pass
 
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    class QuietServer(ThreadingHTTPServer):
+        # Suppress the broken-pipe traceback when a client (e.g. the oversize test)
+        # disconnects mid-response.
+        def handle_error(self, request, client_address):
+            pass
+
+    srv = QuietServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     host, port = srv.server_address
     yield (f"http://127.0.0.1:{port}", requested)

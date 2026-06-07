@@ -1,5 +1,5 @@
 from mboxviewer.assets import url_hash, normalize_url, extract_image_refs, is_tracking_pixel
-from mboxviewer.assets import fetch_image, write_asset_bytes, read_asset_bytes, assets_dir
+from mboxviewer.assets import fetch_image, write_asset_bytes, read_asset_bytes, assets_dir, asset_path
 
 
 def test_url_hash_stable_and_hex():
@@ -37,9 +37,10 @@ def test_is_tracking_pixel():
 
 
 def test_fetch_image_success(image_server):
-    base, _ = image_server
+    base, requested = image_server
     res = fetch_image(f"{base}/logo.png")
     assert res.ok and res.content_type == "image/png" and res.data == b"FAKEIMAGEBYTES"
+    assert "/logo.png" in requested
 
 
 def test_fetch_image_rejects_non_image(image_server):
@@ -65,3 +66,4 @@ def test_asset_byte_cache_roundtrip(tmp_path):
     assert read_asset_bytes(archive_dir, "abc123") == b"hello"
     assert read_asset_bytes(archive_dir, "missing") is None
     assert assets_dir(archive_dir).endswith("assets")
+    assert asset_path(archive_dir, "abc123").endswith("assets/abc123")

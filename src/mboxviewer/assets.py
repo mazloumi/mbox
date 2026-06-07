@@ -1,5 +1,9 @@
 import hashlib
+import io
+import os
 import re
+import urllib.request
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
@@ -67,20 +71,16 @@ def is_tracking_pixel(url, width, height):
     return any(t in host for t in TRACKER_HOSTS)
 
 
-import io
-import os
-import urllib.request
-
 MAX_ASSET_BYTES = 10 * 1024 * 1024
 FETCH_TIMEOUT = 10
 
 
+@dataclass
 class FetchResult:
-    def __init__(self, ok, content_type=None, data=None, error=None):
-        self.ok = ok
-        self.content_type = content_type
-        self.data = data
-        self.error = error
+    ok: bool
+    content_type: str = None
+    data: bytes = None
+    error: str = None
 
 
 def fetch_image(url, timeout=FETCH_TIMEOUT, max_bytes=MAX_ASSET_BYTES):
