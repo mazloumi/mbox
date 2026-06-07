@@ -1,4 +1,5 @@
 import io as _io
+import os as _os
 import time
 from email.message import EmailMessage
 from email.generator import BytesGenerator
@@ -198,3 +199,25 @@ def test_inline_forced_to_attachment_for_unsafe_mime(tmp_path):
     r = c.get(f"/api/messages/{mid}/attachments/0", params={"inline": "true"})
     assert r.headers["content-disposition"].startswith("attachment")  # forced, not inline
     assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_status_includes_mbox_and_current(tmp_path, sample_mbox):
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
+    c = TestClient(create_app(settings, index_in_background=False))
+    s = c.get("/api/status").json()
+    assert s["mbox"] == _os.path.basename(sample_mbox)
+    assert s["current"] is True              # just indexed -> matches the mbox
+    _os.utime(sample_mbox, (0, 0))           # change the mbox mtime
+    assert c.get("/api/status").json()["current"] is False
+
+
+def test_archive_status_includes_persisted_state(tmp_path, image_server):
+    from mboxviewer.archive import ArchiveStatus, run_archive
+    base, _ = image_server
+    c, settings = _client_for_html(tmp_path, f'<img src="{base}/logo.png">')
+    before = c.get("/api/archive/status").json()
+    assert before["archived"]["total"] == 0 and before["up_to_date"] is False
+    run_archive(settings, c.app.state.store, c.app.state.asset_store, ArchiveStatus())
+    after = c.get("/api/archive/status").json()
+    assert after["archived"]["ok"] == 1 and after["up_to_date"] is True

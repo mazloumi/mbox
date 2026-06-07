@@ -102,7 +102,10 @@ def create_app(settings, index_in_background=True):
 
     @app.get("/api/status")
     def get_status():
-        return status.snapshot()
+        snap = status.snapshot()
+        snap["mbox"] = os.path.basename(settings.mbox_path)
+        snap["current"] = index_is_current(settings, store)
+        return snap
 
     @app.get("/api/labels")
     def labels():
@@ -176,7 +179,19 @@ def create_app(settings, index_in_background=True):
 
     @app.get("/api/archive/status")
     def archive_status_route():
-        return archive_status.snapshot()
+        snap = archive_status.snapshot()
+        counts = asset_store.asset_counts()
+        meta = asset_store.get_archive_meta()
+        try:
+            cur_size = os.path.getsize(settings.mbox_path)
+            cur_mtime = int(os.path.getmtime(settings.mbox_path))
+        except OSError:
+            cur_size = cur_mtime = None
+        snap["archived"] = counts
+        snap["up_to_date"] = bool(
+            meta and counts["failed"] == 0
+            and meta["source_size"] == cur_size and meta["source_mtime"] == cur_mtime)
+        return snap
 
     @app.get("/api/asset/{asset_hash}")
     def get_asset(asset_hash: str):
