@@ -20,3 +20,23 @@ def test_allows_remote_image_when_opted_in():
 def test_keeps_basic_formatting():
     out = sanitize_html("<p>Hello <b>Bob</b></p>", allow_remote=False)
     assert "<b>" in out and "Bob" in out
+
+
+def test_strips_unclosed_script():
+    out = sanitize_html("<p>ok</p><script>alert(1)", allow_remote=False)
+    assert "alert" not in out and "ok" in out
+
+
+def test_strips_nested_script_text():
+    out = sanitize_html("<script><script>x</script>alert(1)</script><p>ok</p>", allow_remote=False)
+    assert "alert" not in out and "ok" in out
+
+
+def test_preserves_inline_style():
+    out = sanitize_html('<p style="color: red">hi</p>', allow_remote=False)
+    assert "color" in out and "hi" in out
+
+
+def test_blocks_remote_css_background():
+    out = sanitize_html('<div style="background: url(http://tracker.example/x.png)">hi</div>', allow_remote=False)
+    assert "tracker.example" not in out
