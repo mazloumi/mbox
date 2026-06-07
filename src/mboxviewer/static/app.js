@@ -147,6 +147,7 @@ function viewPdf(id, idx) {
   readerPdf.src = `/api/messages/${id}/attachments/${idx}?inline=1`;
   readerPdf.hidden = false;
   readerBody.hidden = true;
+  readerText.hidden = true;
 }
 
 async function openFile(mid, idx, filename, mime, size) {
@@ -249,6 +250,7 @@ function setMode(mode) {
   browseMode = mode;
   currentOpenId = null;
   activeCategory = null;
+  activeLabel = null;
   tabFolders.classList.toggle("active", mode === "folders");
   tabFiles.classList.toggle("active", mode === "files");
   appEl.classList.remove("folders-collapsed");
