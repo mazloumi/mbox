@@ -63,7 +63,7 @@ def test_extract_ics_unfolds_long_lines():
     from mboxviewer.extract import extract_text
     ics = (
         "BEGIN:VEVENT\r\n"
-        "SUMMARY:Quarterly planning and budget\r\n review session\r\n"
+        "SUMMARY:Quarterly planning and budget \r\n review session\r\n"  # space before fold
         "END:VEVENT\r\n"
     )
     out = extract_text("x.ics", "text/calendar", ics.encode())
