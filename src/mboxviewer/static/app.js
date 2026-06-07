@@ -234,7 +234,10 @@ async function pollArchive() {
         archiveStateEl.textContent = breakdown + (s.up_to_date ? " ✓" : " · click to update");
       }
     }
-  } catch (e) { /* ignore transient errors */ }
+  } catch (e) {
+    archiveStateEl.textContent = "Images: status unavailable";
+    setTimeout(pollArchive, 3000);
+  }
 }
 
 archiveBtn.addEventListener("click", async () => {
