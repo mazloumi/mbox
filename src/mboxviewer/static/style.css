@@ -11,7 +11,6 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 .count { color: #999; float: right; font-size: 11px; }
 .subject { font-weight: 600; font-size: 12.5px; }
 .meta { color: #777; font-size: 11px; }
-#toolbar { padding: 3px 6px; border-bottom: 1px solid #eee; }
 #toggle-folders { font-size: 12px; line-height: 1.4; padding: 2px 8px; cursor: pointer;
   background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
 #app.folders-collapsed { grid-template-columns: 360px 1fr; }
@@ -26,13 +25,19 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 #reader-body { flex: 1; border: 0; width: 100%; }
 #load-more { text-align: center; color: #36c; font-weight: 600; }
 #load-remote { margin-top: 8px; font-size: 12px; padding: 3px 8px; cursor: pointer; }
-#status-bar { padding: 6px 12px; background: #fff8e1; border-bottom: 1px solid #f0e0a0;
-  font-size: 13px; color: #7a6a2a; }
-#status-bar.error { background: #fdecea; color: #b00020; border-color: #f5c6cb; }
 #reader-pdf { flex: 1; border: 0; width: 100%; border-top: 1px solid #ddd; }
 .att { display: inline-block; margin-right: 10px; }
 .view-pdf { margin-left: 4px; font-size: 12px; cursor: pointer; }
 #archive-images { font-size: 12px; line-height: 1.4; padding: 2px 8px; margin-left: 6px;
   cursor: pointer; background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
 #archive-images:disabled { opacity: 0.6; cursor: default; }
-#archive-status { margin-left: 8px; font-size: 12px; color: #555; }
+#header { display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 12px; border-bottom: 1px solid #ddd; background: #fafafa; }
+#logo { font-weight: 600; font-size: 14px; }
+#header-actions button { margin-left: 6px; }
+#footer { display: flex; padding: 4px 12px; border-top: 1px solid #ddd;
+  background: #fafafa; font-size: 12px; color: #555; overflow-x: auto; }
+#footer span { white-space: nowrap; }
+#footer span:empty { display: none; }
+#footer span:not(:last-child)::after { content: "·"; margin: 0 10px; color: #bbb; }
+#footer .err { color: #b00020; }

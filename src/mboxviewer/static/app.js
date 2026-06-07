@@ -4,11 +4,12 @@ const readerHeader = document.getElementById("reader-header");
 const readerAtt = document.getElementById("reader-attachments");
 const readerBody = document.getElementById("reader-body");
 const readerPdf = document.getElementById("reader-pdf");
-const statusBar = document.getElementById("status-bar");
 const toggleFolders = document.getElementById("toggle-folders");
 const appEl = document.getElementById("app");
 const archiveBtn = document.getElementById("archive-images");
-const archiveStatusEl = document.getElementById("archive-status");
+const mboxNameEl = document.getElementById("mbox-name");
+const indexStateEl = document.getElementById("index-state");
+const archiveStateEl = document.getElementById("archive-state");
 const q = document.getElementById("q");
 
 const PAGE_SIZE = 50;
@@ -140,18 +141,16 @@ let pollTick = 0;
 async function pollStatus() {
   try {
     const s = await getJSON("/api/status");
+    if (s.mbox) mboxNameEl.textContent = "📁 " + s.mbox;
     if (s.error) {
-      statusBar.hidden = false;
-      statusBar.className = "error";
-      statusBar.textContent = "Indexing failed: " + s.error;
+      indexStateEl.className = "err";
+      indexStateEl.textContent = "Indexing failed: " + s.error;
       return;
     }
+    indexStateEl.className = "";
     if (s.indexing) {
-      statusBar.hidden = false;
-      statusBar.className = "";
-      statusBar.textContent = `Indexing… ${s.percent}% · ${Number(s.messages).toLocaleString()} messages`;
-      // Refresh content every ~10s (every 5th tick) to avoid list churn while the
-      // percentage in the bar still updates every 2s.
+      indexStateEl.textContent =
+        `Indexing… ${s.percent}% · ${Number(s.messages).toLocaleString()} messages`;
       if (pollTick % 5 === 0) {
         loadLabels();
         if (currentOpenId === null) reload();
@@ -159,14 +158,14 @@ async function pollStatus() {
       pollTick += 1;
       setTimeout(pollStatus, 2000);
     } else {
-      statusBar.hidden = true;
+      indexStateEl.textContent = s.current
+        ? `Indexed ${Number(s.messages).toLocaleString()} messages`
+        : "⚠ Source changed — restart to re-index";
       loadLabels();
       if (currentOpenId === null) reload();
     }
-  } catch (err) {
-    statusBar.hidden = false;
-    statusBar.className = "error";
-    statusBar.textContent = "Status unavailable: " + err.message;
+  } catch (e) {
+    indexStateEl.textContent = "Status unavailable";
     setTimeout(pollStatus, 3000);
   }
 }
@@ -211,19 +210,28 @@ async function pollArchive() {
   try {
     const s = await getJSON("/api/archive/status");
     const n = (x) => Number(x).toLocaleString();
+    if (s.error) {
+      archiveStateEl.className = "err";
+      archiveStateEl.textContent = "Archive failed: " + s.error;
+      archiveBtn.disabled = false;
+      return;
+    }
+    archiveStateEl.className = "";
     if (s.running) {
       archiveBtn.disabled = true;
-      archiveStatusEl.textContent =
+      archiveStateEl.textContent =
         `Archiving images… ${n(s.messages_scanned)}/${n(s.total_messages)} · ` +
         `${n(s.downloaded)} saved · ${n(s.skipped)} skipped · ${n(s.failed)} failed`;
       setTimeout(pollArchive, 2000);
     } else {
       archiveBtn.disabled = false;
-      if (s.error) {
-        archiveStatusEl.textContent = "Archive failed: " + s.error;
-      } else if (s.downloaded || s.skipped || s.failed) {
-        archiveStatusEl.textContent =
-          `Archived: ${n(s.downloaded)} saved, ${n(s.skipped)} skipped, ${n(s.failed)} failed`;
+      const a = s.archived || { ok: 0, skipped: 0, failed: 0, total: 0 };
+      if (!a.total) {
+        archiveStateEl.textContent = "Images: not archived yet";
+      } else {
+        const breakdown = `Images: ${n(a.total)} total · ${n(a.ok)} archived · ` +
+          `${n(a.skipped)} skipped · ${n(a.failed)} failed`;
+        archiveStateEl.textContent = breakdown + (s.up_to_date ? " ✓" : " · click to update");
       }
     }
   } catch (e) { /* ignore transient errors */ }
