@@ -63,9 +63,11 @@ def test_progress_callback_receives_count_and_bytes(tmp_path, sample_mbox, monke
     store.create_schema()
     calls = []
     idx.build_index(settings, store, progress=lambda c, b: calls.append((c, b)))
-    assert len(calls) >= 1
-    last_count, last_bytes = calls[-1]
-    assert last_count >= 1 and last_bytes > 0
+    assert len(calls) == 2  # PROGRESS_EVERY=1, sample mbox has 2 messages
+    counts = [c for c, _ in calls]
+    byts = [b for _, b in calls]
+    assert counts == [1, 2]
+    assert byts[0] > 0 and byts[0] < byts[1]  # byte progress is positive and monotonic
 
 
 def test_failed_message_is_not_partially_indexed(tmp_path, sample_mbox, monkeypatch):
