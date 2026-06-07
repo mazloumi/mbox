@@ -59,6 +59,10 @@ def _content_disposition(filename, inline=False):
 def create_app(settings, index_in_background=True):
     app = FastAPI(title="mbox viewer")
     store = Store(settings.index_path)
+    # create_schema() must run here, synchronously, BEFORE the indexer thread is
+    # spawned below: index_is_current() and the first request handlers query tables
+    # that must already exist, and the background thread's clear()/writes must never
+    # race schema creation. Do not move this into _run_index().
     store.create_schema()
     status = IndexStatus()
     app.state.store = store
