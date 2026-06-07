@@ -30,3 +30,8 @@ def test_mime_params_stripped_and_case_insensitive():
 def test_every_result_is_in_category_order():
     for mime in ["application/pdf", "image/png", "audio/x", "application/zip", "x/y"]:
         assert category_for_mime(mime) in CATEGORY_ORDER
+
+
+def test_calendar_mimes():
+    for m in ["text/calendar", "application/ics", "text/x-vcalendar"]:
+        assert category_for_mime(m) == "Calendar", m

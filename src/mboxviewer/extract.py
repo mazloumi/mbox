@@ -1,10 +1,16 @@
 import io
+import re
 from html.parser import HTMLParser
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _XLS_MIME = "application/vnd.ms-excel"
+_CALENDAR_MIMES = {"text/calendar", "application/ics", "text/x-vcalendar"}
+_TEXTLIKE_APP_MIMES = {
+    "application/json", "application/xml",
+    "application/x-yaml", "application/yaml",
+}
 
 
 class _TextExtractor(HTMLParser):
@@ -94,6 +100,78 @@ def _xls_text(data: bytes) -> str:
     return "\n".join(sheets)
 
 
+def _ics_unescape(v: str) -> str:
+    return (v.replace("\\N", "\n").replace("\\n", "\n")
+             .replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\"))
+
+
+def _ics_when(v: str) -> str:
+    m = re.match(r"^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$", v.strip())
+    if not m:
+        return v
+    y, mo, d, h, mi, _s, z = m.groups()
+    if h is None:
+        return "%s-%s-%s" % (y, mo, d)
+    return "%s-%s-%s %s:%s%s" % (y, mo, d, h, mi, " UTC" if z else "")
+
+
+def _ics_text(data: bytes) -> str:
+    raw = data.decode("utf-8", "replace")
+    # RFC 5545 line unfolding: a line starting with space/tab continues the previous one.
+    lines = []
+    for line in raw.splitlines():
+        if line[:1] in (" ", "\t") and lines:
+            lines[-1] += line[1:]
+        else:
+            lines.append(line)
+    events = []
+    cur = None
+    for line in lines:
+        key_line = line.strip()
+        if key_line == "BEGIN:VEVENT":
+            cur = {"attendees": []}
+        elif key_line == "END:VEVENT":
+            if cur is not None:
+                events.append(cur)
+                cur = None
+        elif cur is not None and ":" in line:
+            name, value = line.split(":", 1)
+            key = name.split(";", 1)[0].upper()
+            if key == "SUMMARY":
+                cur["summary"] = _ics_unescape(value)
+            elif key == "DTSTART":
+                cur["start"] = _ics_when(value)
+            elif key == "DTEND":
+                cur["end"] = _ics_when(value)
+            elif key == "LOCATION":
+                cur["location"] = _ics_unescape(value)
+            elif key == "ORGANIZER":
+                cur["organizer"] = value.replace("mailto:", "").replace("MAILTO:", "")
+            elif key == "ATTENDEE":
+                cur["attendees"].append(value.replace("mailto:", "").replace("MAILTO:", ""))
+            elif key == "DESCRIPTION":
+                cur["description"] = _ics_unescape(value)
+    out = []
+    for e in events:
+        if e.get("summary"):
+            out.append("Summary: " + e["summary"])
+        when = e.get("start", "")
+        if e.get("end"):
+            when = (when + " → " + e["end"]) if when else e["end"]
+        if when:
+            out.append("When: " + when)
+        if e.get("location"):
+            out.append("Location: " + e["location"])
+        if e.get("organizer"):
+            out.append("Organizer: " + e["organizer"])
+        if e.get("attendees"):
+            out.append("Attendees: " + ", ".join(e["attendees"]))
+        if e.get("description"):
+            out.append("Description: " + e["description"])
+        out.append("")
+    return "\n".join(out).strip()
+
+
 def extract_text(filename: str, mime: str, data: bytes) -> str:
     """Best-effort plain-text extraction. Returns '' for unsupported or on any error."""
     mime = (mime or "").lower()
@@ -108,6 +186,10 @@ def extract_text(filename: str, mime: str, data: bytes) -> str:
             return _xlsx_text(data)
         if mime == _XLS_MIME:
             return _xls_text(data)
+        if mime in _CALENDAR_MIMES:
+            return _ics_text(data)
+        if mime in _TEXTLIKE_APP_MIMES:
+            return data.decode("utf-8", "replace")
         if mime.startswith("text/html"):
             return html_to_text(data.decode("utf-8", "replace"))
         if mime.startswith("text/"):

@@ -23,6 +23,7 @@ _ARCHIVES = {
     "application/x-gzip", "application/x-tar", "application/x-rar-compressed",
     "application/vnd.rar", "application/x-7z-compressed",
 }
+_CALENDAR = {"text/calendar", "application/ics", "text/x-vcalendar"}
 
 
 def category_for_mime(mime):
@@ -31,7 +32,7 @@ def category_for_mime(mime):
         return "Images"
     if m.startswith("audio/") or m.startswith("video/"):
         return "Media"
-    if m == "text/calendar":
+    if m in _CALENDAR:
         return "Calendar"
     if m == "text/csv":
         return "Spreadsheets"
