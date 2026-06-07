@@ -95,6 +95,11 @@ def fetch_image(url, timeout=FETCH_TIMEOUT, max_bytes=MAX_ASSET_BYTES):
             ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             if not ctype.startswith("image/"):
                 return FetchResult(False, error=f"not an image: {ctype or 'unknown'}")
+            if ctype == "image/svg+xml" or "xml" in ctype:
+                # SVG/XML images can carry scripts; serving them inline same-origin (or via
+                # direct navigation to /api/asset/<hash>) would be an XSS vector. Only
+                # archive safe raster image types.
+                return FetchResult(False, error=f"unsafe image type: {ctype}")
             buf = io.BytesIO()
             while True:
                 chunk = resp.read(65536)

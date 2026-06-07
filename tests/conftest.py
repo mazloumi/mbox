@@ -85,6 +85,8 @@ def image_server():
             requested.append(self.path)
             if self.path.startswith("/notimage"):
                 body, ctype = b"<html>nope</html>", "text/html"
+            elif self.path.startswith("/svg"):
+                body, ctype = b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"
             elif self.path.startswith("/big"):
                 body, ctype = b"x" * (11 * 1024 * 1024), "image/png"
             else:

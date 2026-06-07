@@ -49,6 +49,12 @@ def test_fetch_image_rejects_non_image(image_server):
     assert res.ok is False and "image" in res.error
 
 
+def test_fetch_image_rejects_svg(image_server):
+    base, _ = image_server
+    res = fetch_image(f"{base}/svg.svg")  # image/svg+xml can carry scripts
+    assert res.ok is False and "unsafe" in res.error
+
+
 def test_fetch_image_rejects_oversize(image_server):
     base, _ = image_server
     res = fetch_image(f"{base}/big.png", max_bytes=1024)
