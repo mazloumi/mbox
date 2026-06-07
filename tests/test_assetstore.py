@@ -43,6 +43,16 @@ def test_attempts_and_gave_up_count(tmp_path):
     assert a.asset_counts() == {"ok": 0, "skipped": 0, "failed": 1, "gave_up": 1, "total": 2}
 
 
+def test_attempts_counter_is_monotonic(tmp_path):
+    # A later upsert with a lower attempts (e.g. an ok/skipped write defaulting to 0)
+    # must never reset the retry counter.
+    a = _astore(tmp_path)
+    a.upsert_asset("h", "u", None, None, None, None, "failed", "x", "t", attempts=2)
+    a.upsert_asset("h", "u", None, None, None, None, "failed", "x", "t", attempts=0)
+    a.commit()
+    assert a.get_attempts("h") == 2
+
+
 def test_migration_adds_attempts_to_old_db(tmp_path):
     import os
     import sqlite3
@@ -58,6 +68,7 @@ def test_migration_adds_attempts_to_old_db(tmp_path):
     conn.commit(); conn.close()
     a = AssetStore(d)
     a.create_schema()                      # must ALTER-add attempts with no data loss
+    a.create_schema()                      # idempotent — a second call must not raise
     assert a.get_attempts("h") == 0        # existing row migrated to default 0
     assert a.asset_status("h") == "ok"
 

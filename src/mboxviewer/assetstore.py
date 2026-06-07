@@ -42,8 +42,12 @@ class AssetStore:
         self.conn.executescript(ASSET_SCHEMA)
         try:
             self.conn.execute("ALTER TABLE assets ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # column already exists (fresh DB created it, or a prior migration ran)
+        except sqlite3.OperationalError as exc:
+            # Expected when the column already exists (fresh DB, or a prior migration).
+            # Re-raise anything else (e.g. a locked/IO error) instead of silently
+            # leaving the column absent and breaking later upserts.
+            if "duplicate column" not in str(exc).lower():
+                raise
         self.conn.commit()
 
     def commit(self):
@@ -56,7 +60,8 @@ class AssetStore:
             " VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url_hash) DO UPDATE SET"
             " url=excluded.url, content_type=excluded.content_type, size=excluded.size,"
             " width=excluded.width, height=excluded.height, status=excluded.status,"
-            " error=excluded.error, fetched_at=excluded.fetched_at, attempts=excluded.attempts",
+            " error=excluded.error, fetched_at=excluded.fetched_at,"
+            " attempts=MAX(assets.attempts, excluded.attempts)",  # monotonic: never reset the retry counter
             (url_hash, url, content_type, size, width, height, status, error, fetched_at, attempts))
 
     def get_asset(self, url_hash):
