@@ -31,7 +31,11 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 # browser from rendering attacker-controlled content same-origin (XSS).
 _SAFE_INLINE_MIMES = frozenset({
     "application/pdf",
-    "image/png", "image/jpeg", "image/gif", "image/webp",
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    # Non-scriptable media — safe to serve inline for <audio>/<video> playback.
+    "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac",
+    "audio/ogg", "audio/wav", "audio/webm",
+    "video/mp4", "video/webm", "video/ogg", "video/quicktime",
 })
 
 
