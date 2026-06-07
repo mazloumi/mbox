@@ -103,7 +103,7 @@ def create_app(settings, index_in_background=True):
     @app.get("/api/status")
     def get_status():
         snap = status.snapshot()
-        snap["mbox"] = os.path.basename(settings.mbox_path)
+        snap["mbox"] = settings.mbox_name or os.path.basename(settings.mbox_path)
         snap["current"] = index_is_current(settings, store)
         return snap
 

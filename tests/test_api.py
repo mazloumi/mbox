@@ -201,6 +201,13 @@ def test_inline_forced_to_attachment_for_unsafe_mime(tmp_path):
     assert r.headers["x-content-type-options"] == "nosniff"
 
 
+def test_status_mbox_name_override(tmp_path, sample_mbox):
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"), mbox_name="your-mail.mbox")
+    c = TestClient(create_app(settings, index_in_background=False))
+    assert c.get("/api/status").json()["mbox"] == "your-mail.mbox"
+
+
 def test_status_includes_mbox_and_current(tmp_path, sample_mbox):
     settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"),
                         archive_dir=str(tmp_path / "arch"))

@@ -64,6 +64,8 @@ export PORT="${PORT:-9000}"
 # Durable image archive: a host folder next to the mbox by default (override with ARCHIVE_HOST_DIR).
 export ARCHIVE_HOST_DIR="${ARCHIVE_HOST_DIR:-$(dirname "$RESOLVED")/mbox-viewer-archive}"
 mkdir -p "$ARCHIVE_HOST_DIR"
+# Display the real host filename in the UI (the container only sees /data/mail.mbox).
+export MBOX_NAME="$(basename "$RESOLVED")"
 
 echo "mbox file : $MBOX_FILE"
 echo "viewer    : http://localhost:${PORT}"

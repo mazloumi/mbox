@@ -11,6 +11,7 @@ services:
       - MBOX_PATH=/data/mail.mbox
       - INDEX_PATH=/index/index.db
       - ARCHIVE_DIR=/archive
+      - MBOX_NAME=${MBOX_NAME:-}
 
 volumes:
   mbox-index:
