@@ -128,8 +128,25 @@ Docker: `./run.sh /path/to/your.mbox` (build + run). See `README.md`.
 
 ## Known follow-ups (deliberately deferred)
 
-- First-run indexing blocks startup; could move to a background thread with a
-  `/api/status` endpoint and an "indexing…" UI state for better UX on huge files.
+- **Background indexing + on-site progress (requested).** Today `create_app` indexes
+  synchronously before uvicorn binds, so for a 13GB+ file the site is unreachable for
+  ~20+ minutes on first run. Improve by: run `build_index` in a background thread (or
+  a startup task) and serve the UI immediately; expose `GET /api/status` returning
+  `{indexing: bool, messages_done, bytes_done, bytes_total, percent}` (the indexer
+  already tracks a per-message `count`; have its `progress` callback also record the
+  current byte offset = `offset+length` of the last message, vs `os.path.getsize`);
+  and add a status bar in `static/app.js` that polls `/api/status` and shows
+  "Indexing… N% (X of Y messages)" so a user who reloads sees live progress. While
+  indexing, label/search results grow as rows commit (every `COMMIT_EVERY`), so the UI
+  is usable immediately and fills in. Guard the "done" marker as today (write
+  `meta` size/mtime only on completion) so an interrupted run re-indexes.
+- **Inline PDF viewing (requested).** Currently attachments are download-only. Add an
+  in-browser PDF preview: serve the attachment with `Content-Disposition: inline`
+  (or a separate `?disposition=inline` param) and `Content-Type: application/pdf`, and
+  in the reader render a clickable attachment that opens the PDF in an `<iframe>` /
+  `<embed>` or a new tab. Browsers render PDFs natively, so no JS PDF lib is required;
+  if finer control is wanted later, `pdf.js` can be vendored. Keep the download link too.
+  (Note `_content_disposition` in `api.py` currently hardcodes `attachment`; parameterize it.)
 - Attachment downloads are buffered (`Response(content=...)`), not streamed — fine for
   Gmail's 25MB attachment cap; stream if larger attachments are expected.
 - Single-mbox only. No Maildir / nested-folder / multi-file discovery (out of scope).
