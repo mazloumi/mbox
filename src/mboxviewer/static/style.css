@@ -1,0 +1,21 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; }
+#app { display: grid; grid-template-columns: 220px 360px 1fr; height: 100vh; }
+#labels, #list { border-right: 1px solid #ddd; overflow-y: auto; }
+#labels { padding: 0 12px; }
+#labels h2 { font-size: 13px; text-transform: uppercase; color: #666; }
+#label-list, #message-list { list-style: none; margin: 0; padding: 0; }
+#label-list li, #message-list li { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+#label-list li:hover, #message-list li:hover { background: #f5f7ff; }
+#label-list li.active, #message-list li.active { background: #e7efff; }
+.count { color: #999; float: right; font-size: 12px; }
+.subject { font-weight: 600; }
+.meta { color: #777; font-size: 12px; }
+#searchbar { padding: 10px; border-bottom: 1px solid #ddd; }
+#q { width: 100%; padding: 6px 8px; }
+#reader { display: flex; flex-direction: column; }
+#reader-header { padding: 12px; border-bottom: 1px solid #eee; }
+#reader-attachments { padding: 8px 12px; }
+#reader-attachments a { display: inline-block; margin-right: 8px; padding: 4px 8px;
+  background: #eef; border-radius: 4px; text-decoration: none; font-size: 13px; }
+#reader-body { flex: 1; border: 0; width: 100%; }
