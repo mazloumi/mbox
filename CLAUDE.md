@@ -1,0 +1,145 @@
+# CLAUDE.md — mbox Viewer
+
+Guidance for extending this project. Read this before changing code.
+
+## What this is
+
+A Dockerized, single-user web viewer for **one large Google Takeout `.mbox` file**
+(10GB+ is the design target). It indexes the mbox once into SQLite (with an FTS5
+full-text index), then serves a 3-pane web UI: Gmail labels as folders, message
+browsing/search, and sanitized message + attachment viewing.
+
+Spec and implementation plan live under `docs/superpowers/`:
+- `docs/superpowers/specs/2026-06-07-mbox-viewer-design.md`
+- `docs/superpowers/plans/2026-06-07-mbox-viewer.md`
+
+## Architecture
+
+```
+host .mbox (read-only)  ──►  indexer (streaming scan)  ──►  SQLite + FTS5 index (writable volume)
+                                                                   │
+browser ◄── static JS UI ◄── FastAPI ◄── reads metadata/search ────┘
+                                  └── reads ONE message by byte offset (seek+read) on demand
+```
+
+The mbox is never loaded whole into memory. The indexer records each message's
+`(offset, length)`; viewing a message seeks to that offset and reads only its bytes.
+
+## Module map (`src/mboxviewer/`)
+
+| File | Responsibility | Depends on |
+|------|----------------|------------|
+| `config.py` | `Settings` dataclass + `load_settings()` (env vars) | — |
+| `store.py` | ALL SQLite access: schema, writes, queries, FTS search, `clear()`, `savepoint()` | — |
+| `reader.py` | mbox bytes → `email.EmailMessage`: `iter_message_spans`, `read_message`, `iter_attachments`, `get_display_body`, `parse_labels` | the mbox file |
+| `extract.py` | attachment bytes → text: `extract_text` (pdf/docx/text), `html_to_text` | pypdf, python-docx |
+| `sanitize.py` | unsafe email HTML → safe HTML: `sanitize_html` | bleach[css] |
+| `indexer.py` | orchestrate scan → store: `build_index`, `index_is_current` | reader, extract, store |
+| `api.py` | FastAPI app + routes: `create_app`, `_render_body`, `_content_disposition` | store, reader, sanitize, indexer |
+| `main.py` | uvicorn entrypoint | config, api |
+| `static/` | `index.html`, `style.css`, `app.js` — vanilla JS, no build step | the API |
+
+Keep one responsibility per file. `store.py` is the only place that touches SQLite —
+keep it that way.
+
+## Data model (SQLite)
+
+- `messages(id, offset, length, message_id, subject, from_addr, to_addr, date, date_raw)`
+  — `date` is **ISO-8601** so lexicographic `ORDER BY date DESC` sorts chronologically.
+- `labels(id, name UNIQUE)` + `message_labels(message_id, label_id)` — many-to-many
+  (a message can have multiple Gmail labels).
+- `attachments(id, message_id, idx, filename, mime, size)`.
+- `messages_fts` — **contentless FTS5** (`content=''`) over subject/from/to/body/attachments.
+  Insert by `rowid = messages.id`. Empty it with `INSERT INTO messages_fts(messages_fts) VALUES('delete-all')`.
+- `meta(key, value)` — stores `source_size` and `source_mtime` for staleness detection.
+
+## Critical contracts (don't break these)
+
+1. **Attachment `idx`** is the walk-order index produced by `reader.iter_attachments`.
+   The indexer stores it; the download endpoint re-derives it by walking the same
+   function. If you change attachment enumeration, change it in `reader.iter_attachments`
+   only — both paths use it, so they stay consistent.
+2. **Body rendering is two-path:** HTML parts go through `sanitize_html`; plain-text
+   parts go through `html.escape` (NOT the sanitizer) in `api._render_body`. Routing
+   plain text through the HTML sanitizer silently drops `<word>` sequences (e.g.
+   `List<String>`). Keep them separate.
+3. **`sanitize_html` is security-sensitive.** It (a) strips dangerous elements +
+   their content with an `HTMLParser`-based stripper that tracks depth and rolls back
+   the RAWTEXT/stray-close quirk, (b) runs bleach with a `CSSSanitizer` so inline
+   email CSS is preserved, (c) blocks remote `src`/CSS `url()` including
+   **protocol-relative** `//host` unless `allow_remote=True`. The body also renders in
+   a `sandbox=""` iframe (`srcdoc`) — that sandbox is the primary XSS containment;
+   the sanitizer is defense-in-depth + tracking-pixel blocking. Add tests for any new
+   bypass class (nested/unclosed tags, new URL forms).
+4. **Indexer is all-or-nothing per message and idempotent.** It calls `store.clear()`
+   first, wraps each message in `store.savepoint()` (a failed message rolls back fully
+   rather than leaving a browsable-but-unsearchable row), commits every `COMMIT_EVERY`
+   (2000) to bound WAL growth, and skips malformed messages (logged to stderr). Re-running
+   is safe (no duplication).
+5. **mbox parsing:** message boundary = a line starting with `From ` that is at file
+   start or preceded by a blank line (mboxrd). `read_message` un-escapes mboxrd
+   `>From ` → `From ` (removes exactly one `>`). Google Takeout is mboxrd format.
+6. **`index_is_current`** compares stored `source_size` + integer `source_mtime`
+   against the live file. A changed file triggers a full re-index on next start.
+
+## Conventions / gotchas
+
+- **Python version:** the local dev venv is **3.9**, the Docker image is **3.12**.
+  Keep code 3.9-compatible at runtime — use `typing.Optional[...]`, NOT `X | None`
+  in function signatures (FastAPI evaluates annotations and `X | None` raises on 3.9).
+- **`src/` layout:** `pytest.ini` sets `pythonpath = src`. Run things with
+  `PYTHONPATH=src` outside pytest.
+- **Tests are TDD and use real artifacts.** `tests/conftest.py` provides the
+  `sample_mbox` fixture, which generates a genuine mbox with real PDF (reportlab) and
+  DOCX (python-docx) attachments. Prefer real round-trips over mocks. Every module has
+  a matching `tests/test_*.py`; keep that bar when adding code.
+- **Index build is synchronous in `create_app`** (build-then-serve). Progress prints
+  to stdout/logs. This matches the spec but means the HTTP port isn't up until the
+  first index finishes.
+- **`Settings`** is a plain dataclass; `create_app(settings)` builds the index if
+  stale and stores `store`/`settings` on `app.state`. Routes close over `store`.
+
+## Dev workflow
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pytest                       # full suite (fast; uses tmp dirs)
+PYTHONPATH=src MBOX_PATH=/path/to.mbox INDEX_PATH=./index.db \
+  .venv/bin/python -m mboxviewer.main   # run locally on :8000
+```
+
+Docker: `./run.sh /path/to/your.mbox` (build + run). See `README.md`.
+
+## How to extend (common changes)
+
+- **Support a new attachment type for search:** add a branch in
+  `extract.extract_text` (dispatch on mime); add a dependency to `requirements.txt`
+  (and `bleach[css]`-style extras if needed); add a test in `test_extract.py`.
+- **Add a searchable field:** add the column to `messages_fts` in `store.SCHEMA`,
+  populate it in `store.add_fts` + `indexer.build_index`, and include it in
+  `_fts_query`/`search`. Re-index (bump nothing — `clear()` runs on every build).
+- **Add an API endpoint:** add a route inside `create_app` in `api.py`; add a test in
+  `test_api.py` using `TestClient`.
+- **Frontend change:** edit `static/app.js` / `style.css` (no build step). Escape ALL
+  email-controlled strings injected via `innerHTML` with `escapeHtml` — the main
+  document is NOT sandboxed (only the message-body iframe is). Body HTML goes to the
+  iframe via `srcdoc`.
+
+## Known follow-ups (deliberately deferred)
+
+- First-run indexing blocks startup; could move to a background thread with a
+  `/api/status` endpoint and an "indexing…" UI state for better UX on huge files.
+- Attachment downloads are buffered (`Response(content=...)`), not streamed — fine for
+  Gmail's 25MB attachment cap; stream if larger attachments are expected.
+- Single-mbox only. No Maildir / nested-folder / multi-file discovery (out of scope).
+- No authentication — assumes single-user local use.
+- Search uses prefix-AND of quoted terms (`_fts_query`); no advanced query UI.
+
+## Process note
+
+This was built test-first (each module: failing test → implement → pass → commit) via
+subagent-driven development, with spec-compliance + code-quality review per task and a
+final holistic review. The end-to-end behavior (labels, PDF/DOCX search, attachment
+download, remote-image blocking + toggle, pagination, Docker index reuse) was verified
+in a real browser and a running container. Keep that verification bar for new features.
