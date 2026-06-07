@@ -98,12 +98,14 @@ async function loadNextPage() {
 function viewPdf(id, idx) {
   readerPdf.src = `/api/messages/${id}/attachments/${idx}?inline=1`;
   readerPdf.hidden = false;
+  readerBody.hidden = true;
 }
 
 async function openMessage(id, allowRemote = false) {
   currentOpenId = id;
   readerPdf.hidden = true;
   readerPdf.removeAttribute("src");
+  readerBody.hidden = false;
   try {
     const m = await getJSON(`/api/messages/${id}?allow_remote=${allowRemote}`);
     const remoteBtn = allowRemote ? "" : `<button id="load-remote" type="button">Load remote images</button>`;
@@ -126,6 +128,8 @@ async function openMessage(id, allowRemote = false) {
   }
 }
 
+let pollTick = 0;
+
 async function pollStatus() {
   try {
     const s = await getJSON("/api/status");
@@ -139,8 +143,13 @@ async function pollStatus() {
       statusBar.hidden = false;
       statusBar.className = "";
       statusBar.textContent = `Indexing… ${s.percent}% · ${Number(s.messages).toLocaleString()} messages`;
-      loadLabels();
-      if (currentOpenId === null) reload();
+      // Refresh content every ~10s (every 5th tick) to avoid list churn while the
+      // percentage in the bar still updates every 2s.
+      if (pollTick % 5 === 0) {
+        loadLabels();
+        if (currentOpenId === null) reload();
+      }
+      pollTick += 1;
       setTimeout(pollStatus, 2000);
     } else {
       statusBar.hidden = true;
@@ -161,6 +170,4 @@ q.addEventListener("input", () => {
   searchTimer = setTimeout(() => { currentQuery = q.value.trim(); reload(); }, 250);
 });
 
-loadLabels();
-reload();
 pollStatus();
