@@ -48,11 +48,19 @@ function escapeHtml(s) {
 // Escape text, then wrap each active query term in <mark>. Escaping happens
 // BEFORE wrapping so email-controlled text can never inject markup.
 function highlight(text) {
-  const safe = escapeHtml(text);
+  const t = text || "";
   const terms = (currentQuery || "").split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return safe;
-  const pattern = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  return safe.replace(new RegExp(pattern, "gi"), m => `<mark>${m}</mark>`);
+  if (terms.length === 0) return escapeHtml(t);
+  // Match on the RAW text (so HTML entities aren't split), escaping each segment
+  // and each match individually — only the trusted <mark> tags are unescaped.
+  const re = new RegExp(terms.map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi");
+  let out = "", last = 0, m;
+  while ((m = re.exec(t)) !== null) {
+    out += escapeHtml(t.slice(last, m.index)) + "<mark>" + escapeHtml(m[0]) + "</mark>";
+    last = m.index + m[0].length;
+    if (m.index === re.lastIndex) re.lastIndex++;  // avoid an infinite loop on empty match
+  }
+  return out + escapeHtml(t.slice(last));
 }
 
 function humanSize(bytes) {
@@ -475,9 +483,15 @@ q.addEventListener("input", () => {
 });
 
 // --- Search filters: re-run the list whenever any filter control changes ---
-for (const el of [filterFrom, filterTo, filterSender, filterHasAtt, filterSort]) {
+for (const el of [filterFrom, filterTo, filterHasAtt, filterSort]) {
   el.addEventListener("change", () => reload());
 }
+// The sender filter gets live (debounced) feedback like the main search box.
+let senderTimer;
+filterSender.addEventListener("input", () => {
+  clearTimeout(senderTimer);
+  senderTimer = setTimeout(() => reload(), 250);
+});
 
 // --- Bulk export: show "Download all" in Files mode when scoped ---
 function updateDownloadAll() {
@@ -544,7 +558,7 @@ try {
 // --- Keyboard shortcuts + arrow-key navigation between emails ---
 document.addEventListener("keydown", (e) => {
   const tag = (document.activeElement && document.activeElement.tagName) || "";
-  const typing = tag === "INPUT" || tag === "TEXTAREA";
+  const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
   // Escape blurs the search box even while typing in it.
   if (e.key === "Escape" && document.activeElement === q) { q.blur(); return; }
   if (typing) return;  // don't hijack typing in inputs
