@@ -117,6 +117,7 @@ function appendRows(items) {
 // --- Infinite scroll: auto-load the next page near the bottom of the list ---
 let loadingMore = false;
 let noMorePages = false;
+let loadGeneration = 0;   // bumped on every reload; stale in-flight fetches discard their result
 
 const loadSentinel = document.createElement("li");
 loadSentinel.id = "load-more";            // id kept so arrow-key nav excludes it
@@ -150,6 +151,7 @@ function renderLoadMore(lastCount) {
 }
 
 async function reload() {
+  const gen = ++loadGeneration;            // supersede any in-flight page fetch
   currentPage = 1;
   loadingMore = false;
   noMorePages = false;
@@ -157,8 +159,10 @@ async function reload() {
   if (browseMode === "files" && !activeCategory && !currentQuery) return;  // need a category or a query
   try {
     const data = await getJSON(pageUrl(1));
+    if (gen !== loadGeneration) return;    // a newer reload took over
     appendRows(data.messages || data.files || []);
   } catch (err) {
+    if (gen !== loadGeneration) return;
     messageList.innerHTML = `<li>Failed to load: ${escapeHtml(String(err.message))}</li>`;
   }
 }
@@ -166,16 +170,19 @@ async function reload() {
 async function loadNextPage() {
   if (loadingMore || noMorePages) return;
   loadingMore = true;
+  const gen = loadGeneration;
   currentPage += 1;
   try {
     const data = await getJSON(pageUrl(currentPage));
+    if (gen !== loadGeneration) return;    // context switched mid-fetch — drop stale rows
     appendRows(data.messages || data.files || []);
   } catch (err) {
+    if (gen !== loadGeneration) return;
     noMorePages = true;
     if (moreObserver) moreObserver.unobserve(loadSentinel);
     if (loadSentinel.parentNode) loadSentinel.remove();
   } finally {
-    loadingMore = false;
+    if (gen === loadGeneration) loadingMore = false;   // newer reload already reset state
   }
 }
 
