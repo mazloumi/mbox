@@ -334,6 +334,11 @@ def test_tnef_inner_endpoints(tmp_path):
     r = c.get(f"/api/messages/{mid}/attachments/0/inner/0")
     assert r.content == b"INNER-BYTES"
     assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["content-type"].startswith("text/plain")
+    assert 'filename="report.txt"' in r.headers["content-disposition"]
+    # an inner file of a non-allowlisted type is forced to attachment even with inline=1
+    r2 = c.get(f"/api/messages/{mid}/attachments/0/inner/0", params={"inline": "true"})
+    assert r2.headers["content-disposition"].startswith("attachment")  # text/plain not allowlisted
     # a non-TNEF attachment lists nothing; bad inner index 404s
     assert c.get(f"/api/messages/{mid}/attachments/1/inner").json()["files"] == []
     assert c.get(f"/api/messages/{mid}/attachments/0/inner/9").status_code == 404
