@@ -115,6 +115,35 @@ def test_failed_message_is_not_partially_indexed(tmp_path, sample_mbox, monkeypa
     assert store.list_labels() == []                    # no orphan labels
 
 
+def test_build_index_populates_preview(tmp_path, sample_mbox):
+    _, store, _ = _build(tmp_path, sample_mbox)
+    rows = store.list_messages(None, 100, 0)
+    assert all(r["preview"] for r in rows)
+    assert all(len(r["preview"]) <= 300 for r in rows)
+
+
+def test_build_index_records_integrity_counts(tmp_path, sample_mbox):
+    _, store, count = _build(tmp_path, sample_mbox)
+    rep = store.integrity()
+    assert rep["indexed"] == count == 2
+    assert rep["skipped"] == 0
+    assert rep["sample"] == []
+
+
+def test_build_index_tracks_skipped(tmp_path, sample_mbox, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("bad attachment here")
+    monkeypatch.setattr("mboxviewer.indexer.extract_text", boom)
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    store = Store(settings.index_path)
+    store.create_schema()
+    build_index(settings, store)
+    assert int(store.get_meta("skipped_count")) >= 1
+    rep = store.integrity()
+    assert rep["skipped"] >= 1
+    assert rep["sample"] and "reason" in rep["sample"][0] and "offset" in rep["sample"][0]
+
+
 def test_zip_inner_filenames_are_indexed(tmp_path):
     import io, zipfile
     from email.message import EmailMessage
