@@ -13,7 +13,8 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 .meta { color: #777; font-size: 11px; }
 #app.folders-collapsed { grid-template-columns: 360px 1fr; }
 #app.folders-collapsed #labels { display: none; }
-#searchbar { padding: 10px; border-bottom: 1px solid #ddd; }
+#searchbar { padding: 10px; border-bottom: 1px solid #ddd; position: sticky; top: 0;
+  background: #fff; z-index: 2; }
 #q { width: 100%; padding: 6px 8px; }
 #reader { display: flex; flex-direction: column; }
 #reader-header { padding: 12px; border-bottom: 1px solid #eee; }
