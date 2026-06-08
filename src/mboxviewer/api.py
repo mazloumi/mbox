@@ -2,8 +2,10 @@ import html
 import os
 import re
 import sys
+import tempfile
 import threading
 import urllib.parse
+import zipfile
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -11,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .store import Store
-from .reader import read_message, iter_attachments, get_display_body
+from .reader import read_message, read_message_bytes, iter_attachments, get_display_body
 from .sanitize import sanitize_html
 from .indexer import build_index, index_is_current
 from .status import IndexStatus
@@ -41,7 +43,7 @@ _SAFE_INLINE_MIMES = frozenset({
 def _msg_summary(row):
     return {
         "id": row["id"], "subject": row["subject"], "from": row["from_addr"],
-        "to": row["to_addr"], "date": row["date"],
+        "to": row["to_addr"], "date": row["date"], "preview": row["preview"],
     }
 
 
@@ -119,16 +121,26 @@ def create_app(settings, index_in_background=True):
 
     @app.get("/api/messages")
     def messages(label: Optional[str] = None,
-                 page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
+                 page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
+                 date_from: Optional[str] = None, date_to: Optional[str] = None,
+                 from_q: Optional[str] = None, has_attachment: bool = False,
+                 sort: str = "date_desc"):
         offset = (page - 1) * page_size
-        rows = store.list_messages(label, page_size, offset)
+        rows = store.list_messages(label, page_size, offset,
+                                   date_from=date_from, date_to=date_to, from_q=from_q,
+                                   has_attachment=has_attachment, sort=sort)
         return {"messages": [_msg_summary(r) for r in rows], "page": page}
 
     @app.get("/api/search")
     def search(q: str = Query(...), label: Optional[str] = None,
-               page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
+               page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
+               date_from: Optional[str] = None, date_to: Optional[str] = None,
+               from_q: Optional[str] = None, has_attachment: bool = False,
+               sort: str = "date_desc"):
         offset = (page - 1) * page_size
-        rows = store.search(q, label, page_size, offset)
+        rows = store.search(q, label, page_size, offset,
+                            date_from=date_from, date_to=date_to, from_q=from_q,
+                            has_attachment=has_attachment, sort=sort)
         return {"messages": [_msg_summary(r) for r in rows], "page": page}
 
     @app.get("/api/messages/{message_id}")
@@ -151,6 +163,22 @@ def create_app(settings, index_in_background=True):
         atts = [{"idx": a["idx"], "filename": a["filename"], "mime": a["mime"], "size": a["size"]}
                 for a in store.get_attachments(message_id)]
         return {**_msg_summary(row), "body_html": body_html, "attachments": atts}
+
+    @app.get("/api/messages/{message_id}/raw")
+    def message_raw(message_id: int):
+        row = store.get_message_row(message_id)
+        if row is None:
+            raise HTTPException(404, "message not found")
+        try:
+            raw = read_message_bytes(settings.mbox_path, row["offset"], row["length"])
+        except FileNotFoundError:
+            raise HTTPException(503, "mbox file not available")
+        return Response(
+            content=raw, media_type="message/rfc822",
+            headers={
+                "Content-Disposition": _content_disposition(f"message-{message_id}.eml"),
+                "X-Content-Type-Options": "nosniff",
+            })
 
     @app.get("/api/messages/{message_id}/attachments/{idx}")
     def attachment(message_id: int, idx: int, inline: bool = False):
@@ -269,6 +297,54 @@ def create_app(settings, index_in_background=True):
                            "filename": r["filename"], "size": r["size"], "mime": r["mime"],
                            "subject": r["subject"], "date": r["date"]} for r in rows],
                 "page": page}
+
+    @app.get("/api/integrity")
+    def integrity():
+        return {**store.integrity(), "messages": store.message_count()}
+
+    @app.get("/api/files/export")
+    def files_export(category: Optional[str] = None, q: Optional[str] = None):
+        rows = store.list_files_for_export(
+            category or None, (q or "").strip() or None, 1000)
+        if not rows:
+            raise HTTPException(404, "no files")
+        CAP_BYTES = 1024 ** 3
+        total = 0
+        # Cache message_id -> parsed EmailMessage so each message is read/parsed once
+        # even when it contributes several attachments to the export.
+        msg_cache = {}
+        spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024)
+        try:
+            with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
+                for r in rows:
+                    if total >= CAP_BYTES:
+                        break
+                    mid = r["message_id"]
+                    msg = msg_cache.get(mid)
+                    if msg is None:
+                        mrow = store.get_message_row(mid)
+                        if mrow is None:
+                            continue
+                        msg = read_message(settings.mbox_path, mrow["offset"], mrow["length"])
+                        msg_cache[mid] = msg
+                    for a_idx, filename, mime, payload in iter_attachments(msg):
+                        if a_idx == r["idx"]:
+                            # Cap is enforced before writing so the loop actually stops.
+                            if total + len(payload) > CAP_BYTES:
+                                break
+                            base = os.path.basename(filename or "file")
+                            name = f"{mid}-{base}"
+                            zf.writestr(name, payload)
+                            total += len(payload)
+                            break
+        except FileNotFoundError:
+            raise HTTPException(503, "mbox file not available")
+        spool.seek(0)
+        data = spool.read()
+        label = category or "search"
+        return Response(
+            content=data, media_type="application/zip",
+            headers={"Content-Disposition": _content_disposition(f"mbox-{label}.zip")})
 
     @app.get("/api/files/{message_id}/{idx}/text")
     def file_text(message_id: int, idx: int):

@@ -1,6 +1,8 @@
 import io as _io
+import io
 import os as _os
 import time
+import zipfile
 from email.message import EmailMessage
 from email.generator import BytesGenerator
 
@@ -355,3 +357,75 @@ def test_favicon_served(client):
     assert r.headers["content-type"].startswith("image/svg+xml")
     assert b"<svg" in r.content
     assert client.get("/static/favicon.svg").status_code == 200
+
+
+# --- Task 4: raw .eml, integrity, bulk export, search filters/sort/preview ---
+
+def test_message_raw_eml(client):
+    mid = client.get("/api/messages", params={"label": "Important"}).json()["messages"][0]["id"]
+    r = client.get(f"/api/messages/{mid}/raw")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("message/rfc822")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    disp = r.headers["content-disposition"]
+    assert disp.startswith("attachment")
+    assert ".eml" in disp
+    # body is RFC-822 with header lines, no leading "From " envelope line
+    assert not r.content.startswith(b"From ")
+    assert b"Subject:" in r.content
+
+
+def test_message_raw_eml_404(client):
+    assert client.get("/api/messages/999999/raw").status_code == 404
+
+
+def test_integrity_endpoint(client):
+    data = client.get("/api/integrity").json()
+    assert set(data) >= {"indexed", "skipped", "sample", "messages"}
+    assert data["messages"] == 2
+    assert isinstance(data["sample"], list)
+
+
+def test_files_export_zip(client):
+    r = client.get("/api/files/export", params={"category": "Documents"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/zip")
+    disp = r.headers["content-disposition"]
+    assert disp.startswith("attachment")
+    assert "mbox-Documents.zip" in disp
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    names = zf.namelist()
+    # both Documents attachments present; entry names are basename-only (no path seps)
+    assert any(n.endswith("invoice.pdf") for n in names)
+    assert any(n.endswith("report.docx") for n in names)
+    assert all("/" not in n and "\\" not in n for n in names)
+
+
+def test_files_export_404_when_no_match(client):
+    assert client.get("/api/files/export",
+                      params={"category": "Nonexistent"}).status_code == 404
+
+
+def test_search_filters_sort_and_preview(client):
+    # carol@example.com is the sender of m2 ("Q1 numbers")
+    data = client.get("/api/search",
+                      params={"q": "report", "from_q": "carol"}).json()
+    assert data["messages"], "expected a match for carol's message"
+    for m in data["messages"]:
+        assert "carol" in (m["from"] or "")
+        assert "preview" in m  # preview present on every row
+
+
+def test_messages_sort_accepted_with_preview(client):
+    # The two sample messages share a Date, so ASC/DESC need not reverse ids; just
+    # assert the sort param is accepted and preview is present on every row.
+    asc = client.get("/api/messages", params={"sort": "date_asc"}).json()["messages"]
+    desc = client.get("/api/messages", params={"sort": "date_desc"}).json()["messages"]
+    assert {m["id"] for m in asc} == {m["id"] for m in desc} == {1, 2}
+    assert all("preview" in m for m in asc)
+    assert all("preview" in m for m in desc)
+
+
+def test_messages_has_attachment_filter(client):
+    data = client.get("/api/messages", params={"has_attachment": "true"}).json()
+    assert len(data["messages"]) == 2  # both sample messages have attachments
