@@ -235,13 +235,15 @@ async function openFile(mid, idx, filename, mime, size) {
   readerAtt.innerHTML =
     `<a href="/api/messages/${mid}/attachments/${idx}" download>Download</a>` +
     ` <button type="button" class="open-email" onclick="openEmailFromFile(${mid})">Open email</button>`;
+  // Windows Media can't be decoded by any browser — catch it by MIME OR extension
+  // (these files often arrive as application/octet-stream) before trying a player.
+  if (isUnplayable(m, name)) {
+    showOnlyPane(readerText);
+    readerText.textContent = "This format (Windows Media) can't be played in the browser. Use the Download link above.";
+    return;
+  }
   if (m.startsWith("image/")) { showOnlyPane(readerImage); readerImage.src = inlineUrl; return; }
   if (m.startsWith("audio/") || m.startsWith("video/")) {
-    if (isUnplayable(m, name)) {
-      showOnlyPane(readerText);
-      readerText.textContent = "This format (Windows Media) can't be played in the browser. Use the Download link above.";
-      return;
-    }
     const pane = m.startsWith("audio/") ? readerAudio : readerVideo;
     showOnlyPane(pane);
     pane.onerror = () => {
