@@ -4,7 +4,9 @@ import os
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import zipfile
 from html.parser import HTMLParser
 from typing import List, Tuple
 
@@ -20,6 +22,65 @@ _TEXTLIKE_APP_MIMES = {
     "application/json", "application/xml",
     "application/x-yaml", "application/yaml",
 }
+_ARCHIVE_MIMES = {
+    "application/zip", "application/x-zip-compressed", "application/java-archive",
+    "application/gzip", "application/x-gzip", "application/x-tar", "application/x-gtar",
+    "application/x-bzip-compressed-tar",
+}
+_ARCHIVE_EXTS = (".zip", ".jar", ".war", ".ear", ".tar", ".tgz", ".tbz2", ".tar.gz", ".tar.bz2")
+
+
+def _is_archive(mime, filename):
+    if (mime or "").lower() in _ARCHIVE_MIMES:
+        return True
+    name = (filename or "").lower()
+    return name.endswith(_ARCHIVE_EXTS)
+
+
+def iter_archive_entries(data, cap=5000):
+    """[(name, size)] of the files inside a zip or tar archive (dirs skipped)."""
+    buf = io.BytesIO(data)
+    if zipfile.is_zipfile(buf):
+        buf.seek(0)
+        with zipfile.ZipFile(buf) as z:
+            out = []
+            for info in z.infolist():
+                if info.is_dir():
+                    continue
+                out.append((info.filename, info.file_size))
+                if len(out) >= cap:
+                    break
+            return out
+    buf.seek(0)
+    try:
+        with tarfile.open(fileobj=buf) as t:
+            out = []
+            for m in t:
+                if m.isfile():
+                    out.append((m.name, m.size))
+                    if len(out) >= cap:
+                        break
+            return out
+    except Exception:
+        return []
+
+
+def _human_size(n):
+    n = float(n or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return "%d %s" % (int(n), unit) if unit == "B" else "%.1f %s" % (n, unit)
+        n /= 1024
+
+
+def _archive_text(data):
+    rows = iter_archive_entries(data)
+    if not rows:
+        return ""
+    lines = ["Name\tSize"]
+    for name, size in rows:
+        lines.append("%s\t%s" % (name, _human_size(size)))
+    return "\n".join(lines)
 
 
 class _TextExtractor(HTMLParser):
@@ -357,6 +418,8 @@ def extract_text(filename: str, mime: str, data: bytes) -> str:
             return _ppt_text(data)
         if mime == "application/ms-tnef":
             return _tnef_text(data)
+        if _is_archive(mime, filename):
+            return _archive_text(data)
         if mime in _CALENDAR_MIMES:
             return _ics_text(data)
         if mime in _VCARD_MIMES:
