@@ -6,7 +6,7 @@ from contextlib import contextmanager
 # Bump whenever a change requires a full re-index even on an unchanged mbox —
 # a new/changed column, extractor, or categorization rule. `index_is_current`
 # compares this against the value stamped into `meta` at build time.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
