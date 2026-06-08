@@ -113,3 +113,30 @@ def test_failed_message_is_not_partially_indexed(tmp_path, sample_mbox, monkeypa
     assert count == 0                                   # both messages failed
     assert store.list_messages(None, 100, 0) == []      # no orphan message rows
     assert store.list_labels() == []                    # no orphan labels
+
+
+def test_zip_inner_filenames_are_indexed(tmp_path):
+    import io, zipfile
+    from email.message import EmailMessage
+    from email.generator import BytesGenerator
+    zb = io.BytesIO()
+    with zipfile.ZipFile(zb, "w") as z:
+        z.writestr("secret_plans.txt", b"hi")
+    m = EmailMessage()
+    m["Subject"] = "x"; m["From"] = "a@x.com"; m["To"] = "b@x.com"
+    m["Date"] = "Mon, 01 Jan 2024 10:00:00 +0000"; m["X-Gmail-Labels"] = "Inbox"
+    m.set_content("body")
+    m.add_attachment(zb.getvalue(), maintype="application", subtype="zip", filename="bundle.zip")
+    buf = io.BytesIO(); BytesGenerator(buf).flatten(m); data = buf.getvalue()
+    p = tmp_path / "z.mbox"
+    p.write_bytes(b"From - x\n" + data + (b"" if data.endswith(b"\n") else b"\n") + b"\n")
+    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"))
+    store = Store(settings.index_path); store.create_schema(); build_index(settings, store)
+    assert len(store.search("secret_plans", None, 10, 0)) == 1   # inner filename searchable
+
+
+def test_schema_version_bump_marks_v2_index_stale(tmp_path, sample_mbox):
+    settings, store, _ = _build(tmp_path, sample_mbox)
+    assert index_is_current(settings, store) is True
+    store.set_meta("schema_version", "2"); store.commit()   # built by the previous format
+    assert index_is_current(settings, store) is False

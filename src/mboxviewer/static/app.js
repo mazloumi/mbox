@@ -225,6 +225,15 @@ function isUnplayable(m, name) {
   return _UNPLAYABLE_MIMES.has(m) || /\.(wma|wmv|asf)$/.test(name);
 }
 
+const _ARCHIVE_MIMES = new Set([
+  "application/zip", "application/x-zip-compressed", "application/java-archive",
+  "application/gzip", "application/x-gzip", "application/x-tar", "application/x-gtar",
+  "application/x-bzip-compressed-tar",
+]);
+function isArchive(m, name) {
+  return _ARCHIVE_MIMES.has(m) || /\.(zip|jar|war|ear|tar|tgz|tbz2|tar\.gz|tar\.bz2|gz|bz2)$/.test(name);
+}
+
 async function openFile(mid, idx, filename, mime, size) {
   currentOpenId = mid;
   const m = (mime || "").toLowerCase();
@@ -273,6 +282,17 @@ async function openFile(mid, idx, filename, mime, size) {
       readerTable.innerHTML = (d.text && d.text.trim()) ? renderTableRows(parseTsv(d.text)) : "No content.";
     } catch (err) {
       readerTable.textContent = "Failed to load file: " + err.message;
+    }
+    return;
+  }
+  if (isArchive(m, name)) {
+    showOnlyPane(readerTable);
+    readerTable.innerHTML = "Loading…";
+    try {
+      const d = await getJSON(`/api/files/${mid}/${idx}/text`);
+      readerTable.innerHTML = (d.text && d.text.trim()) ? renderTableRows(parseTsv(d.text)) : "No files listed.";
+    } catch (err) {
+      readerTable.textContent = "Failed to load archive: " + err.message;
     }
     return;
   }

@@ -262,3 +262,49 @@ def test_ppt_text_uses_catppt(monkeypatch):
         stdout = b"SLIDE ONE TITLE"
     monkeypatch.setattr(extract.subprocess, "run", lambda *a, **k: _R())
     assert "SLIDE ONE TITLE" in extract.extract_text("d.ppt", "application/vnd.ms-powerpoint", b"x")
+
+
+def test_archive_zip_listing():
+    import io, zipfile
+    from mboxviewer.extract import extract_text, _is_archive
+    zb = io.BytesIO()
+    with zipfile.ZipFile(zb, "w") as z:
+        z.writestr("docs/report.pdf", b"x" * 1500)
+        z.writestr("secret_plans.txt", b"hi")
+        z.writestr("emptydir/", b"")            # directory entry -> skipped
+    out = extract_text("bundle.zip", "application/zip", zb.getvalue())
+    assert "Name\tSize" in out
+    assert "docs/report.pdf\t1.5 KB" in out          # name + human size column
+    assert "secret_plans.txt\t2 B" in out
+    assert "emptydir/" not in out
+    assert _is_archive("application/octet-stream", "x.zip")    # extension path
+
+
+def test_archive_corrupt_zip_returns_empty():
+    # is_zipfile() can pass on a file whose central directory is then unreadable.
+    from mboxviewer.extract import iter_archive_entries, extract_text
+    blob = b"PK\x03\x04" + b"\x00" * 40          # zip local-header magic, junk body
+    assert iter_archive_entries(blob) == []      # public fn must not raise
+    assert extract_text("x.zip", "application/zip", blob) == ""
+
+
+def test_archive_targz_listing():
+    import io, tarfile
+    from mboxviewer.extract import extract_text
+    tb = io.BytesIO()
+    with tarfile.open(fileobj=tb, mode="w:gz") as t:
+        data = b"r,c\n1,2"
+        ti = tarfile.TarInfo("a/data.csv"); ti.size = len(data)
+        t.addfile(ti, io.BytesIO(data))
+    out = extract_text("arch.tar.gz", "application/gzip", tb.getvalue())
+    assert "a/data.csv" in out
+
+
+def test_archive_non_archive_and_empty():
+    import io, zipfile
+    from mboxviewer.extract import extract_text
+    assert extract_text("x.zip", "application/zip", b"not a zip") == ""
+    zb = io.BytesIO()
+    with zipfile.ZipFile(zb, "w") as z:
+        z.writestr("onlydir/", b"")
+    assert extract_text("d.zip", "application/zip", zb.getvalue()) == ""  # no files
