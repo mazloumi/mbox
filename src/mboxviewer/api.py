@@ -9,7 +9,7 @@ import zipfile
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .store import Store
@@ -52,6 +52,24 @@ def _render_body(mime, content, allow_remote=False):
     if mime == "text/html":
         return sanitize_html(content, allow_remote=allow_remote)
     return "<pre>" + html.escape(content) + "</pre>"
+
+
+def _zip_entry_name(mid, filename, seen):
+    """A safe, unique zip entry name: basename only (strip both / and \\ to avoid
+    zip-slip), prefixed by message id, de-collided against `seen`."""
+    base = os.path.basename((filename or "file").replace("\\", "/")) or "file"
+    name = f"{mid}-{base}"
+    if name not in seen:
+        seen.add(name)
+        return name
+    stem, dot, ext = name.rpartition(".")
+    i = 1
+    while True:
+        cand = f"{stem}-{i}.{ext}" if dot else f"{name}-{i}"
+        if cand not in seen:
+            seen.add(cand)
+            return cand
+        i += 1
 
 
 def _content_disposition(filename, inline=False):
@@ -310,15 +328,12 @@ def create_app(settings, index_in_background=True):
             raise HTTPException(404, "no files")
         CAP_BYTES = 1024 ** 3
         total = 0
-        # Cache message_id -> parsed EmailMessage so each message is read/parsed once
-        # even when it contributes several attachments to the export.
-        msg_cache = {}
+        msg_cache = {}   # message_id -> parsed EmailMessage (read/parsed once per message)
+        seen = set()     # de-collide zip entry names
         spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024)
         try:
             with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
                 for r in rows:
-                    if total >= CAP_BYTES:
-                        break
                     mid = r["message_id"]
                     msg = msg_cache.get(mid)
                     if msg is None:
@@ -327,23 +342,39 @@ def create_app(settings, index_in_background=True):
                             continue
                         msg = read_message(settings.mbox_path, mrow["offset"], mrow["length"])
                         msg_cache[mid] = msg
-                    for a_idx, filename, mime, payload in iter_attachments(msg):
+                    payload = fname = None
+                    for a_idx, filename, _mime, p in iter_attachments(msg):
                         if a_idx == r["idx"]:
-                            # Cap is enforced before writing so the loop actually stops.
-                            if total + len(payload) > CAP_BYTES:
-                                break
-                            base = os.path.basename(filename or "file")
-                            name = f"{mid}-{base}"
-                            zf.writestr(name, payload)
-                            total += len(payload)
+                            payload, fname = p, filename
                             break
+                    if payload is None:
+                        continue
+                    if total + len(payload) > CAP_BYTES:
+                        break   # stop entirely once the next file would exceed the cap
+                    zf.writestr(_zip_entry_name(mid, fname, seen), payload)
+                    total += len(payload)
         except FileNotFoundError:
+            spool.close()
             raise HTTPException(503, "mbox file not available")
+        except Exception:
+            spool.close()
+            raise
         spool.seek(0)
-        data = spool.read()
         label = category or "search"
-        return Response(
-            content=data, media_type="application/zip",
+
+        def _stream():
+            # Chunked read so the (≤1 GB) zip is never fully re-materialized in RAM.
+            try:
+                while True:
+                    chunk = spool.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                spool.close()
+
+        return StreamingResponse(
+            _stream(), media_type="application/zip",
             headers={"Content-Disposition": _content_disposition(f"mbox-{label}.zip")})
 
     @app.get("/api/files/{message_id}/{idx}/text")

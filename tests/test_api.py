@@ -429,3 +429,14 @@ def test_messages_sort_accepted_with_preview(client):
 def test_messages_has_attachment_filter(client):
     data = client.get("/api/messages", params={"has_attachment": "true"}).json()
     assert len(data["messages"]) == 2  # both sample messages have attachments
+
+
+def test_zip_entry_name_dedupes_and_sanitizes():
+    from mboxviewer.api import _zip_entry_name
+    seen = set()
+    assert _zip_entry_name(7, "doc.pdf", seen) == "7-doc.pdf"
+    assert _zip_entry_name(7, "doc.pdf", seen) == "7-doc-1.pdf"      # collision -> suffix
+    assert _zip_entry_name(7, "doc.pdf", seen) == "7-doc-2.pdf"
+    # path separators (both / and \) are stripped to basename (no zip-slip)
+    assert _zip_entry_name(9, "../../etc/passwd", seen) == "9-passwd"
+    assert _zip_entry_name(9, "C:\\Windows\\evil.exe", seen) == "9-evil.exe"
