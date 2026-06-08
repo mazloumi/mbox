@@ -303,10 +303,14 @@ class Store:
             raise
 
     def integrity(self):
+        try:
+            sample = json.loads(self.get_meta("skipped_sample") or "[]")
+        except (ValueError, TypeError):
+            sample = []  # never let a malformed meta value 500 the status endpoint
         return {
             "indexed": int(self.get_meta("indexed_count") or 0),
             "skipped": int(self.get_meta("skipped_count") or 0),
-            "sample": json.loads(self.get_meta("skipped_sample") or "[]"),
+            "sample": sample,
         }
 
     def all_message_spans(self):

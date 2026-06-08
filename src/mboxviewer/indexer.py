@@ -47,7 +47,8 @@ def build_index(settings, store, progress=None):
             with store.savepoint():
                 msg = read_message(settings.mbox_path, offset, length)
                 date_raw = msg["date"]
-                preview = " ".join(_body_text(msg).split())[:300]
+                body_text = _body_text(msg)  # compute once: used for preview + FTS body
+                preview = " ".join(body_text.split())[:300]
                 mid = store.add_message(
                     offset, length, msg["message-id"], msg["subject"],
                     msg["from"], msg["to"], _iso_date(date_raw), date_raw, preview)
@@ -60,7 +61,7 @@ def build_index(settings, store, progress=None):
                     att_texts.append(extract_text(filename, mime, payload))
                 store.add_fts(
                     mid, msg["subject"] or "", msg["from"] or "", msg["to"] or "",
-                    _body_text(msg), "\n".join(att_texts))
+                    body_text, "\n".join(att_texts))
             count += 1
         except Exception as exc:
             skipped += 1
