@@ -231,3 +231,16 @@ def test_iter_tnef_attachments():
 def test_extract_tnef_garbage_empty():
     from mboxviewer.extract import extract_text
     assert extract_text("winmail.dat", "application/ms-tnef", b"not tnef") == ""
+
+
+def test_iter_tnef_attachments_nameless_fallback():
+    # An attachment with no ATTACHTITLE falls back to the "attachment" name.
+    import struct
+    from mboxviewer.extract import iter_tnef_attachments
+    def attr(level, att, data):
+        return struct.pack("<BII", level, att, len(data)) + data + struct.pack("<H", sum(data) & 0xFFFF)
+    raw = struct.pack("<I", 0x223E9F78) + struct.pack("<H", 0x0001)
+    raw += attr(0x02, _TNEF.ATTATTACHRENDDATA, b"\x00" * 16)
+    raw += attr(0x02, _TNEF.ATTATTACHDATA, b"NONAME")
+    items = iter_tnef_attachments(raw)
+    assert items == [("attachment", "application/octet-stream", b"NONAME")]

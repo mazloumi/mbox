@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 from html.parser import HTMLParser
+from typing import List, Tuple
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -289,10 +290,7 @@ def _doc_text(data: bytes) -> str:
     return _salvage_text(raw)
 
 
-def iter_tnef_attachments(data: bytes):
-    """[(name, mime, bytes)] for each inner attachment of a TNEF blob."""
-    from tnefparse import TNEF
-    tnef = TNEF(data, do_checksum=False)
+def _tnef_inner_from(tnef) -> List[Tuple[str, str, bytes]]:
     out = []
     for a in tnef.attachments:
         name = (a.name or "").strip() or "attachment"
@@ -301,11 +299,17 @@ def iter_tnef_attachments(data: bytes):
     return out
 
 
+def iter_tnef_attachments(data: bytes) -> List[Tuple[str, str, bytes]]:
+    """[(name, mime, bytes)] for each inner attachment of a TNEF blob."""
+    from tnefparse import TNEF
+    return _tnef_inner_from(TNEF(data, do_checksum=False))
+
+
 def _tnef_text(data: bytes) -> str:
     from tnefparse import TNEF
-    tnef = TNEF(data, do_checksum=False)
+    tnef = TNEF(data, do_checksum=False)  # parse once; reuse for body + attachments
     parts = []
-    inner = list(iter_tnef_attachments(data))
+    inner = _tnef_inner_from(tnef)
     if inner:
         parts.append("Contained files: " + ", ".join(n for (n, _m, _b) in inner))
     body = tnef.body
