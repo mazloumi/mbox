@@ -39,6 +39,6 @@ def test_calendar_mimes():
 
 def test_contacts_mimes():
     from mboxviewer.filetypes import CATEGORY_ORDER
-    for m in ["text/x-vcard", "text/vcard", "application/vcard"]:
+    for m in ["text/x-vcard", "text/vcard", "application/vcard", "text/directory"]:
         assert category_for_mime(m) == "Contacts", m
     assert "Contacts" in CATEGORY_ORDER

@@ -171,6 +171,14 @@ def test_extract_vcard_no_card_empty():
     assert extract_text("x.vcf", "text/x-vcard", b"not a vcard") == ""
 
 
+def test_extract_vcard_n_fallback_and_fold():
+    # No FN: the N value (folded across two physical lines) becomes the Name.
+    from mboxviewer.extract import extract_text
+    vcf = "BEGIN:VCARD\r\nN:Smith;Bob \r\n Junior\r\nEND:VCARD\r\n"
+    out = extract_text("c.vcf", "text/x-vcard", vcf.encode())
+    assert "Name: Smith Bob Junior" in out
+
+
 def test_doc_salvage_text_utf16():
     from mboxviewer.extract import _salvage_text
     raw = b"\x07\x00" + "Quarterly Report Growth".encode("utf-16-le") + b"\x00\x13"
