@@ -274,9 +274,18 @@ def test_archive_zip_listing():
         z.writestr("emptydir/", b"")            # directory entry -> skipped
     out = extract_text("bundle.zip", "application/zip", zb.getvalue())
     assert "Name\tSize" in out
-    assert "docs/report.pdf" in out and "secret_plans.txt" in out
+    assert "docs/report.pdf\t1.5 KB" in out          # name + human size column
+    assert "secret_plans.txt\t2 B" in out
     assert "emptydir/" not in out
     assert _is_archive("application/octet-stream", "x.zip")    # extension path
+
+
+def test_archive_corrupt_zip_returns_empty():
+    # is_zipfile() can pass on a file whose central directory is then unreadable.
+    from mboxviewer.extract import iter_archive_entries, extract_text
+    blob = b"PK\x03\x04" + b"\x00" * 40          # zip local-header magic, junk body
+    assert iter_archive_entries(blob) == []      # public fn must not raise
+    assert extract_text("x.zip", "application/zip", blob) == ""
 
 
 def test_archive_targz_listing():

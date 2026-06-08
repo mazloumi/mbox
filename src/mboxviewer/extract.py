@@ -42,15 +42,18 @@ def iter_archive_entries(data, cap=5000):
     buf = io.BytesIO(data)
     if zipfile.is_zipfile(buf):
         buf.seek(0)
-        with zipfile.ZipFile(buf) as z:
-            out = []
-            for info in z.infolist():
-                if info.is_dir():
-                    continue
-                out.append((info.filename, info.file_size))
-                if len(out) >= cap:
-                    break
-            return out
+        try:
+            with zipfile.ZipFile(buf) as z:
+                out = []
+                for info in z.infolist():
+                    if info.is_dir():
+                        continue
+                    out.append((info.filename, info.file_size))
+                    if len(out) >= cap:
+                        break
+                return out
+        except Exception:  # is_zipfile passed but the central directory is corrupt
+            return []
     buf.seek(0)
     try:
         with tarfile.open(fileobj=buf) as t:
