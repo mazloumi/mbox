@@ -289,5 +289,11 @@ def create_app(settings, index_in_background=True):
     def index():
         return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
+    @app.get("/favicon.ico")
+    def favicon():
+        # The browser's default /favicon.ico request; serve the SVG logo (no 404).
+        return FileResponse(os.path.join(STATIC_DIR, "favicon.svg"),
+                            media_type="image/svg+xml")
+
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app
