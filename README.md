@@ -37,67 +37,85 @@ type), via tabs in the header.
 - **Schema-version guard** — a code change that needs a re-index triggers it automatically
 - **Keyboard shortcuts:** `/` focus search · `j`/`k` (or ↑/↓) next/prev · `Esc` blur search
 
-## Requirements
+## ⚠️ Security & intended use — read this first
 
-- [Docker](https://docs.docker.com/get-docker/) (with the `docker compose` plugin)
-- A Google Takeout mbox export (a single `.mbox` file) somewhere on your machine
+This is a **single-user, local-only** tool. It has **no authentication and no HTTPS**, and
+it shows the entire contents of your mailbox to anyone who can reach it.
 
-## Quick start (recommended)
+- **Run it only on your own computer.** By default the viewer is published on **`127.0.0.1`
+  (localhost) only**, so it is not reachable from your network — keep it that way.
+- **Do not deploy it on a server, a VPS, or any shared/public network**, do not port-forward
+  it, and do not change the bind address to `0.0.0.0`. There is no login — exposing the port
+  means exposing all of your email.
+- If you genuinely need remote access, reach it over a **private VPN** (e.g. Tailscale) or put
+  it behind a reverse proxy that adds **HTTPS *and* authentication** (e.g. Caddy + basic auth).
+  Never expose the raw port.
 
-A default mbox path and port are pre-configured (see "Configuration reference"
-below), so you can just run:
+Your mbox is mounted **read-only** and is never modified; nothing is uploaded anywhere.
+
+## Prerequisites
+
+- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** (macOS or Windows),
+  or Docker Engine + the `docker compose` plugin (Linux). Docker is the only thing you install
+  — Python and all other dependencies run inside the container.
+- A **Google Takeout mailbox export** (a single `.mbox` file): go to
+  [takeout.google.com](https://takeout.google.com/) → deselect all, select **Mail** → create
+  the export → download and unzip it. The `.mbox` is under `Takeout/Mail/` (often named
+  `All mail Including Spam and Trash.mbox`).
+- Free disk space for the search index (roughly 1–2× the mbox size), stored in a Docker volume.
+
+## Run it — macOS / Linux
+
+Point the launch script at your `.mbox` file (or the folder that contains exactly one):
 
 ```bash
-./run.sh
-```
-
-To use a different file, point the launch script at your mbox file (or the folder
-containing it):
-
-```bash
-./run.sh /absolute/path/to/your.mbox
-```
-
-You can also point at the **folder** that holds the mbox — if it contains exactly
-one `.mbox` file, it's picked automatically:
-
-```bash
+./run.sh "/Users/you/Downloads/Takeout/Mail/All mail Including Spam and Trash.mbox"
+# or pass the containing folder:
 ./run.sh "/Users/you/Downloads/Takeout/Mail"
 ```
 
-Or pass the path as an environment variable instead of an argument:
+Change the host port (default `9000`) with `PORT`:
 
 ```bash
-MBOX_FILE=/absolute/path/to/your.mbox ./run.sh
+PORT=9500 ./run.sh "/path/to/your.mbox"
 ```
 
-Change the host port (default `9000`) with the `PORT` variable:
+Then open **http://localhost:9000** (or your chosen port). Stop with `Ctrl+C` (or
+`docker compose down`).
 
-```bash
-PORT=9500 ./run.sh /absolute/path/to/your.mbox
-```
+## Run it — Windows
 
-Then open **http://localhost:9000** (or your chosen port).
+`run.sh` is bash-only, so on Windows use Docker Compose directly (this works on macOS/Linux
+too):
 
-> On the **first** run the app indexes the whole mbox before serving. For a large
-> (10GB+) file this can take several minutes — watch the terminal logs for
-> `Building index...` / `Index complete`. The index is stored in a Docker volume
-> (`mbox-index`) and **reused on later runs**, so subsequent starts are fast.
+1. In the repo folder, copy `.env.example` to `.env` and set `MBOX_FILE` to your mbox path
+   (use the Windows path with the drive letter):
 
-To stop the viewer, press `Ctrl+C` in the terminal (or run `docker compose down`).
-
-## Alternative: docker compose directly
-
-If you prefer not to use the script:
-
-1. Copy `.env.example` to `.env` and set `MBOX_FILE` to the **absolute path** of your
-   `.mbox` file (and optionally `ARCHIVE_HOST_DIR`, the durable image-archive folder):
-
-   ```bash
-   cp .env.example .env
-   # then edit .env: set MBOX_FILE=/absolute/path/to/your.mbox
-   #                 (optionally) ARCHIVE_HOST_DIR=/absolute/path/to/archive
+   ```powershell
+   Copy-Item .env.example .env
+   # then edit .env, e.g.:
+   #   MBOX_FILE=C:\Users\you\Downloads\Takeout\Mail\All mail Including Spam and Trash.mbox
    ```
+
+2. Build and start:
+
+   ```powershell
+   docker compose up --build
+   ```
+
+3. Open **http://localhost:9000**. Stop with `Ctrl+C` (or `docker compose down`).
+
+> **The first run indexes the whole mbox.** For a large (10 GB+) file this takes several
+> minutes — the page loads immediately and shows progress, filling in as it indexes. The index
+> lives in a Docker volume (`mbox-index`) and is **reused on later runs**, so subsequent starts
+> are fast.
+
+## Alternative: docker compose directly (macOS / Linux)
+
+You can use the same `.env` + compose flow shown for Windows above:
+
+1. `cp .env.example .env`, then edit `.env` to set `MBOX_FILE` (and optionally
+   `ARCHIVE_HOST_DIR`, the durable image-archive folder).
 
 2. Build and start:
 
@@ -161,6 +179,24 @@ and you can delete the originals in Gmail, drop/rebuild the index, or move machi
 everything still renders offline. Re-running "Archive remote images" on an unchanged mbox
 is an instant no-op (it records the mbox size/mtime and skips re-downloading).
 
+## Limitations
+
+- **No authentication and no HTTPS** — local-use only (see the security note above).
+- **One mbox file at a time.** No Maildir, no multi-file or nested-folder discovery, no
+  combining multiple exports. Point it at a single `.mbox` (run a second instance on another
+  port for a second file).
+- **Built for Google Takeout** mbox (mboxrd format, `X-Gmail-Labels` / `X-GM-THRID` headers).
+  Other mbox dialects mostly work but aren't a tested target.
+- **Read-only viewer** — no reply/compose/delete, and no message flags/stars/notes yet.
+- **Best-effort extraction.** Legacy `.doc`/`.ppt` use bundled `antiword`/`catppt`; old binary
+  PowerPoint without a text layer, encrypted/DRM files, and `rar`/`7z` archive *contents* aren't
+  extracted. Such files still download.
+- **WMA/WMV can't play in-browser** (no browser codec) — a notice + download link is shown.
+- **Conversation threading isn't implemented yet** (messages are listed flat).
+- **Attachment downloads are buffered, not streamed** — fine for Gmail's 25 MB cap; very large
+  attachments would use more memory.
+- The first index of a very large (10 GB+) mbox can take several minutes.
+
 ## Roadmap
 
 Ideas not yet built (rough priority order):
@@ -192,8 +228,8 @@ Then open http://localhost:9000.
 
 | Variable     | Where            | Default            | Meaning                                            |
 |--------------|------------------|--------------------|----------------------------------------------------|
-| `MBOX_FILE`  | host (compose)   | `/path/to/your-mail.mbox` | Absolute path to your `.mbox` file on the host |
-| `PORT`       | host (compose)   | `9000`             | Host port to expose the viewer on                  |
+| `MBOX_FILE`  | host (compose)   | **required**       | Absolute path to your `.mbox` file on the host (no default) |
+| `PORT`       | host (compose)   | `9000`             | Host port (published on `127.0.0.1` only)          |
 | `ARCHIVE_HOST_DIR` | host (compose) | `mbox-viewer-archive/` next to the mbox (via `run.sh`) | Durable host folder for the offline image archive |
 | `MBOX_PATH`  | container        | `/data/mail.mbox`  | Path to the mbox inside the container              |
 | `INDEX_PATH` | container        | `/index/index.db`  | Path to the SQLite index inside the container      |
