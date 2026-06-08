@@ -45,6 +45,7 @@ for _cat, _exts in {
 }.items():
     for _e in _exts.split():
         _EXT_CATEGORY[_e] = _cat
+del _cat, _exts, _e
 
 
 def category_for_mime(mime):
