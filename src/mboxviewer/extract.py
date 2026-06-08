@@ -258,8 +258,8 @@ def _antiword_text(data: bytes) -> str:
     path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as f:
+            path = f.name  # capture first so `finally` can always unlink, even if write fails
             f.write(data)
-            path = f.name
         proc = subprocess.run([exe, path], capture_output=True, timeout=30)
         return proc.stdout.decode("utf-8", "replace") if proc.returncode == 0 else ""
     except Exception:
@@ -277,15 +277,14 @@ def _doc_text(data: bytes) -> str:
     if text.strip():
         return text
     import olefile                     # pure-Python fallback (dev venv, or antiword miss)
-    if not olefile.isOleFile(io.BytesIO(data)):
+    buf = io.BytesIO(data)
+    if not olefile.isOleFile(buf):
         return ""
-    ole = olefile.OleFileIO(io.BytesIO(data))
-    try:
+    buf.seek(0)
+    with olefile.OleFileIO(buf) as ole:
         if not ole.exists("WordDocument"):
             return ""
         raw = ole.openstream("WordDocument").read()
-    finally:
-        ole.close()
     return _salvage_text(raw)
 
 
