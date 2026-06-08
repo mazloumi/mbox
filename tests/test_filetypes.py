@@ -35,3 +35,10 @@ def test_every_result_is_in_category_order():
 def test_calendar_mimes():
     for m in ["text/calendar", "application/ics", "text/x-vcalendar"]:
         assert category_for_mime(m) == "Calendar", m
+
+
+def test_contacts_mimes():
+    from mboxviewer.filetypes import CATEGORY_ORDER
+    for m in ["text/x-vcard", "text/vcard", "application/vcard"]:
+        assert category_for_mime(m) == "Contacts", m
+    assert "Contacts" in CATEGORY_ORDER

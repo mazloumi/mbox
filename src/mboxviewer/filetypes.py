@@ -1,6 +1,6 @@
 CATEGORY_ORDER = [
     "Documents", "Spreadsheets", "Presentations", "Images",
-    "Archives", "Calendar", "Media", "Other",
+    "Archives", "Calendar", "Contacts", "Media", "Other",
 ]
 
 _DOCUMENTS = {
@@ -25,6 +25,8 @@ _ARCHIVES = {
 }
 # Keep in sync with extract._CALENDAR_MIMES (separate module, no shared import).
 _CALENDAR = {"text/calendar", "application/ics", "text/x-vcalendar"}
+# Keep in sync with extract._VCARD_MIMES (separate module, no shared import).
+_CONTACTS = {"text/x-vcard", "text/vcard", "application/vcard", "text/directory"}
 
 
 def category_for_mime(mime):
@@ -35,6 +37,8 @@ def category_for_mime(mime):
         return "Media"
     if m in _CALENDAR:
         return "Calendar"
+    if m in _CONTACTS:
+        return "Contacts"
     if m == "text/csv":
         return "Spreadsheets"
     if m in _DOCUMENTS:

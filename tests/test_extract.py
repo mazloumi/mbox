@@ -153,3 +153,19 @@ def test_extract_textlike_application_types():
 def test_extract_ics_no_event_returns_empty():
     from mboxviewer.extract import extract_text
     assert extract_text("x.ics", "text/calendar", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n") == ""
+
+
+def test_extract_vcard():
+    from mboxviewer.extract import extract_text
+    vcf = ("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Alice Smith\r\nORG:Acme\r\n"
+           "TITLE:Engineer\r\nEMAIL:alice@example.com\r\n"
+           "EMAIL;TYPE=work:a.smith@acme.com\r\nTEL:+1-555-1234\r\nEND:VCARD\r\n")
+    out = extract_text("c.vcf", "text/x-vcard", vcf.encode())
+    assert "Name: Alice Smith" in out
+    assert "alice@example.com" in out and "a.smith@acme.com" in out
+    assert "+1-555-1234" in out and "Acme" in out
+
+
+def test_extract_vcard_no_card_empty():
+    from mboxviewer.extract import extract_text
+    assert extract_text("x.vcf", "text/x-vcard", b"not a vcard") == ""

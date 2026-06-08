@@ -8,6 +8,8 @@ _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _XLS_MIME = "application/vnd.ms-excel"
 # Keep in sync with filetypes._CALENDAR (separate module, no shared import).
 _CALENDAR_MIMES = {"text/calendar", "application/ics", "text/x-vcalendar"}
+# Keep in sync with filetypes._CONTACTS (separate module, no shared import).
+_VCARD_MIMES = {"text/x-vcard", "text/vcard", "application/vcard", "text/directory"}
 _TEXTLIKE_APP_MIMES = {
     "application/json", "application/xml",
     "application/x-yaml", "application/yaml",
@@ -173,6 +175,64 @@ def _ics_text(data: bytes) -> str:
     return "\n".join(out).strip()
 
 
+def _vcard_text(data: bytes) -> str:
+    raw = data.decode("utf-8", "replace")
+    lines = []
+    for line in raw.splitlines():
+        if line[:1] in (" ", "\t") and lines:
+            lines[-1] += line[1:]
+        else:
+            lines.append(line)
+    cards = []
+    cur = None
+    for line in lines:
+        u = line.strip().upper()
+        if u == "BEGIN:VCARD":
+            cur = {"emails": [], "tels": []}
+        elif u == "END:VCARD":
+            if cur is not None:
+                cards.append(cur)
+                cur = None
+        elif cur is not None and ":" in line:
+            name, value = line.split(":", 1)
+            key = name.split(";", 1)[0].upper()
+            value = _ics_unescape(value)
+            if key == "FN":
+                cur["name"] = value
+            elif key == "N" and "name" not in cur:
+                cur["name"] = value.replace(";", " ").strip()
+            elif key == "EMAIL":
+                cur["emails"].append(value)
+            elif key == "TEL":
+                cur["tels"].append(value)
+            elif key == "ORG":
+                cur["org"] = value.replace(";", " ").strip()
+            elif key == "TITLE":
+                cur["title"] = value
+            elif key == "ADR":
+                cur["adr"] = value.replace(";", " ").strip()
+            elif key == "URL":
+                cur["url"] = value
+    out = []
+    for c in cards:
+        if c.get("name"):
+            out.append("Name: " + c["name"])
+        if c.get("title"):
+            out.append("Title: " + c["title"])
+        if c.get("org"):
+            out.append("Organization: " + c["org"])
+        if c.get("emails"):
+            out.append("Email: " + ", ".join(c["emails"]))
+        if c.get("tels"):
+            out.append("Phone: " + ", ".join(c["tels"]))
+        if c.get("adr"):
+            out.append("Address: " + c["adr"])
+        if c.get("url"):
+            out.append("URL: " + c["url"])
+        out.append("")
+    return "\n".join(out).strip()
+
+
 def extract_text(filename: str, mime: str, data: bytes) -> str:
     """Best-effort plain-text extraction. Returns '' for unsupported or on any error."""
     mime = (mime or "").lower()
@@ -189,6 +249,8 @@ def extract_text(filename: str, mime: str, data: bytes) -> str:
             return _xls_text(data)
         if mime in _CALENDAR_MIMES:
             return _ics_text(data)
+        if mime in _VCARD_MIMES:
+            return _vcard_text(data)
         if mime in _TEXTLIKE_APP_MIMES:
             return data.decode("utf-8", "replace")
         if mime.startswith("text/html"):
