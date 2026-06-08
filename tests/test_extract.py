@@ -244,3 +244,21 @@ def test_iter_tnef_attachments_nameless_fallback():
     raw += attr(0x02, _TNEF.ATTATTACHDATA, b"NONAME")
     items = iter_tnef_attachments(raw)
     assert items == [("attachment", "application/octet-stream", b"NONAME")]
+
+
+def test_ppt_dispatch_without_catppt_returns_empty():
+    # catppt is absent in the dev venv, so the ppt path returns "" (no crash).
+    from mboxviewer.extract import extract_text
+    assert extract_text("d.ppt", "application/vnd.ms-powerpoint", b"\xd0\xcf\x11\xe0junk") == ""
+
+
+def test_ppt_text_uses_catppt(monkeypatch):
+    # Simulate catppt being present and returning text.
+    import subprocess
+    from mboxviewer import extract
+    monkeypatch.setattr(extract.shutil, "which", lambda name: "/usr/bin/catppt" if name == "catppt" else None)
+    class _R:
+        returncode = 0
+        stdout = b"SLIDE ONE TITLE"
+    monkeypatch.setattr(extract.subprocess, "run", lambda *a, **k: _R())
+    assert "SLIDE ONE TITLE" in extract.extract_text("d.ppt", "application/vnd.ms-powerpoint", b"x")

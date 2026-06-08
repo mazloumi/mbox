@@ -253,14 +253,14 @@ def _salvage_text(raw: bytes) -> str:
     return a if score(a) >= score(b) else b
 
 
-def _antiword_text(data: bytes) -> str:
-    exe = shutil.which("antiword")
+def _run_text_tool(toolname: str, suffix: str, data: bytes) -> str:
+    exe = shutil.which(toolname)
     if not exe:
         return ""
     path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as f:
-            path = f.name  # capture first so `finally` can always unlink, even if write fails
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            path = f.name
             f.write(data)
         proc = subprocess.run([exe, path], capture_output=True, timeout=30)
         return proc.stdout.decode("utf-8", "replace") if proc.returncode == 0 else ""
@@ -272,6 +272,14 @@ def _antiword_text(data: bytes) -> str:
                 os.unlink(path)
             except OSError:
                 pass
+
+
+def _ppt_text(data: bytes) -> str:
+    return _run_text_tool("catppt", ".ppt", data)
+
+
+def _antiword_text(data: bytes) -> str:
+    return _run_text_tool("antiword", ".doc", data)
 
 
 def _doc_text(data: bytes) -> str:
@@ -345,6 +353,8 @@ def extract_text(filename: str, mime: str, data: bytes) -> str:
             return _xls_text(data)
         if mime == "application/msword":
             return _doc_text(data)
+        if mime in ("application/vnd.ms-powerpoint", "application/mspowerpoint"):
+            return _ppt_text(data)
         if mime == "application/ms-tnef":
             return _tnef_text(data)
         if mime in _CALENDAR_MIMES:
