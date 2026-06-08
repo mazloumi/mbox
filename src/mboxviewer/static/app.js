@@ -114,21 +114,46 @@ function appendRows(items) {
   renderLoadMore(items.length);
 }
 
+// --- Infinite scroll: auto-load the next page near the bottom of the list ---
+let loadingMore = false;
+let noMorePages = false;
+
+const loadSentinel = document.createElement("li");
+loadSentinel.id = "load-more";            // id kept so arrow-key nav excludes it
+loadSentinel.className = "load-more";
+
+// Observe a bottom sentinel within the scrolling list pane; fire ~400px early.
+const moreObserver = ("IntersectionObserver" in window)
+  ? new IntersectionObserver((entries) => {
+      if (entries.some(e => e.isIntersecting)) loadNextPage();
+    }, { root: document.getElementById("list"), rootMargin: "400px" })
+  : null;
+
 function renderLoadMore(lastCount) {
-  const existing = document.getElementById("load-more");
-  if (existing) existing.remove();
   if (lastCount === PAGE_SIZE) {
-    const li = document.createElement("li");
-    li.id = "load-more";
-    li.textContent = "Load more…";
-    li.onclick = loadNextPage;
-    messageList.appendChild(li);
+    noMorePages = false;
+    loadSentinel.textContent = moreObserver ? "Loading…" : "Load more…";
+    messageList.appendChild(loadSentinel);   // move to the bottom
+    if (moreObserver) {
+      // Re-observe to force a fresh intersection check, so a list that doesn't
+      // fill the viewport keeps loading until the API returns a short page.
+      moreObserver.unobserve(loadSentinel);
+      moreObserver.observe(loadSentinel);
+    } else {
+      loadSentinel.onclick = loadNextPage;   // fallback when IO is unavailable
+    }
+  } else {
+    noMorePages = true;
+    if (moreObserver) moreObserver.unobserve(loadSentinel);
+    if (loadSentinel.parentNode) loadSentinel.remove();
   }
 }
 
 async function reload() {
   currentPage = 1;
-  messageList.innerHTML = "";
+  loadingMore = false;
+  noMorePages = false;
+  messageList.innerHTML = "";              // detaches the sentinel; re-added by appendRows
   if (browseMode === "files" && !activeCategory && !currentQuery) return;  // need a category or a query
   try {
     const data = await getJSON(pageUrl(1));
@@ -139,12 +164,18 @@ async function reload() {
 }
 
 async function loadNextPage() {
+  if (loadingMore || noMorePages) return;
+  loadingMore = true;
   currentPage += 1;
   try {
     const data = await getJSON(pageUrl(currentPage));
     appendRows(data.messages || data.files || []);
   } catch (err) {
-    renderLoadMore(0);
+    noMorePages = true;
+    if (moreObserver) moreObserver.unobserve(loadSentinel);
+    if (loadSentinel.parentNode) loadSentinel.remove();
+  } finally {
+    loadingMore = false;
   }
 }
 
