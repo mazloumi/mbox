@@ -54,7 +54,7 @@ def test_search_respects_label_filter(tmp_path):
 def test_get_message_and_attachments(tmp_path):
     s = _store(tmp_path)
     mid = s.add_message(5, 50, "<id>", "S", "a", "b", "2024-01-01T10:00:00", "raw")
-    s.add_attachment(mid, 0, "invoice.pdf", "application/pdf", 999)
+    s.add_attachment(mid, 0, "invoice.pdf", "application/pdf", 999, "Documents")
     s.commit()
     row = s.get_message_row(mid)
     assert row["offset"] == 5 and row["length"] == 50
@@ -71,45 +71,77 @@ def test_all_message_spans(tmp_path, sample_mbox):
     assert len(spans) == 2 and spans[0]["length"] > 0
 
 
-def test_attachment_mime_counts_and_files(tmp_path, sample_mbox):
+def test_category_counts_and_listing(tmp_path, sample_mbox):
     from mboxviewer.config import Settings
     from mboxviewer.indexer import build_index
     settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
     s = Store(settings.index_path); s.create_schema(); build_index(settings, s)
-    counts = {r["mime"]: r["c"] for r in s.attachment_mime_counts()}
-    assert counts["application/pdf"] == 1
-    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    assert counts[docx] == 1
-    files = s.list_files_by_mimes(["application/pdf"], 10, 0)
-    assert len(files) == 1
-    assert files[0]["filename"] == "invoice.pdf"
-    assert files[0]["subject"] == "Welcome aboard" and files[0]["size"] > 0
-    assert s.list_files_by_mimes([], 10, 0) == []
+    counts = {r["category"]: r["c"] for r in s.attachment_category_counts()}
+    assert counts.get("Documents") == 2          # invoice.pdf + report.docx
+    files = s.list_files_by_category("Documents", 10, 0)
+    assert sorted(f["filename"] for f in files) == ["invoice.pdf", "report.docx"]
+    assert s.list_files_by_category("Documents", 10, 0, query="invoice")[0]["filename"] == "invoice.pdf"
+    assert s.list_files_by_category(None, 10, 0) == []          # no category, no query
+    assert s.list_files_by_category("Nope", 10, 0) == []        # unknown category
 
 
-def test_list_files_by_mimes_search(tmp_path, sample_mbox):
+def test_octet_stream_pdf_categorized_by_extension(tmp_path):
+    import io
+    from email.message import EmailMessage
+    from email.generator import BytesGenerator
+    from mboxviewer.config import Settings
+    from mboxviewer.indexer import build_index
+    m = EmailMessage()
+    m["Subject"] = "x"; m["From"] = "a@x.com"; m["To"] = "b@x.com"
+    m["Date"] = "Mon, 01 Jan 2024 10:00:00 +0000"; m["X-Gmail-Labels"] = "Inbox"
+    m.set_content("body")
+    m.add_attachment(b"%PDF-1.4 junk", maintype="application", subtype="octet-stream",
+                     filename="scan.pdf")
+    buf = io.BytesIO(); BytesGenerator(buf).flatten(m); data = buf.getvalue()
+    p = tmp_path / "o.mbox"
+    p.write_bytes(b"From - x\n" + data + (b"" if data.endswith(b"\n") else b"\n") + b"\n")
+    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"))
+    s = Store(settings.index_path); s.create_schema(); build_index(settings, s)
+    counts = {r["category"]: r["c"] for r in s.attachment_category_counts()}
+    assert counts.get("Documents") == 1          # octet-stream + .pdf -> Documents
+
+
+def test_category_column_migration(tmp_path):
+    import sqlite3
+    db = str(tmp_path / "old.db")
+    # Simulate a pre-existing attachments table WITHOUT the category column.
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE attachments (id INTEGER PRIMARY KEY, message_id INTEGER, idx INTEGER,"
+        " filename TEXT, mime TEXT, size INTEGER);"
+        "INSERT INTO attachments(message_id, idx, filename, mime, size) VALUES(1,0,'a.pdf','x',1);")
+    conn.commit(); conn.close()
+    s = Store(db)
+    s.create_schema()    # must ALTER-add category without data loss
+    s.create_schema()    # idempotent
+    assert s.conn.execute("SELECT category FROM attachments").fetchone()[0] is None
+
+
+def test_list_files_by_category_search(tmp_path, sample_mbox):
     from mboxviewer.config import Settings
     from mboxviewer.indexer import build_index
     settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
     s = Store(settings.index_path); s.create_schema(); build_index(settings, s)
-    pdf = "application/pdf"
-    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    allmimes = [pdf, docx]
-    # filename match
-    by_name = s.list_files_by_mimes(allmimes, 50, 0, query="invoice")
+    # filename match within category
+    by_name = s.list_files_by_category("Documents", 50, 0, query="invoice")
     assert [f["filename"] for f in by_name] == ["invoice.pdf"]
     # content match: a term inside the indexed PDF text (see conftest sample body/attachment)
-    by_content = s.list_files_by_mimes([pdf], 50, 0, query="12345")
+    by_content = s.list_files_by_category("Documents", 50, 0, query="12345")
     assert any(f["filename"] == "invoice.pdf" for f in by_content)
-    # no-mime + query searches across all files
-    cross = s.list_files_by_mimes([], 50, 0, query="invoice")
+    # no category + query searches across all files
+    cross = s.list_files_by_category(None, 50, 0, query="invoice")
     assert any(f["filename"] == "invoice.pdf" for f in cross)
     # punctuation-only query matches no filename and no FTS rows → empty, no crash
-    assert s.list_files_by_mimes(allmimes, 50, 0, query="!!!") == []
-    # whitespace-only query is treated as no query → the mime filter still applies
-    assert [f["filename"] for f in s.list_files_by_mimes([pdf], 50, 0, query="   ")] == ["invoice.pdf"]
-    # no mimes and no query → empty
-    assert s.list_files_by_mimes([], 50, 0, query=None) == []
+    assert s.list_files_by_category("Documents", 50, 0, query="!!!") == []
+    # whitespace-only query is treated as no query → the category filter still applies
+    assert [f["filename"] for f in s.list_files_by_category("Documents", 50, 0, query="   ")] == ["invoice.pdf", "report.docx"]
+    # no category and no query → empty
+    assert s.list_files_by_category(None, 50, 0, query=None) == []
 
 
 def test_reads_work_from_another_thread(tmp_path):

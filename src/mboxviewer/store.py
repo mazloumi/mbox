@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS attachments (
   idx INTEGER NOT NULL,
   filename TEXT,
   mime TEXT,
-  size INTEGER
+  size INTEGER,
+  category TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   subject, from_addr, to_addr, body, attachments, content=''
@@ -64,6 +65,10 @@ class Store:
 
     def create_schema(self):
         self.conn.executescript(SCHEMA)
+        try:
+            self.conn.execute("ALTER TABLE attachments ADD COLUMN category TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already present (fresh CREATE or prior migration)
         self.conn.commit()
 
     def clear(self):
@@ -120,10 +125,11 @@ class Store:
             "INSERT OR IGNORE INTO message_labels(message_id,label_id) VALUES(?,?)",
             (message_id, label_id))
 
-    def add_attachment(self, message_id, idx, filename, mime, size):
+    def add_attachment(self, message_id, idx, filename, mime, size, category):
         self.conn.execute(
-            "INSERT INTO attachments(message_id,idx,filename,mime,size) VALUES(?,?,?,?,?)",
-            (message_id, idx, filename, mime, size))
+            "INSERT INTO attachments(message_id,idx,filename,mime,size,category)"
+            " VALUES(?,?,?,?,?,?)",
+            (message_id, idx, filename, mime, size, category))
 
     def add_fts(self, rowid, subject, from_addr, to_addr, body, attachments):
         self.conn.execute(
@@ -175,20 +181,16 @@ class Store:
         return self.conn.execute(
             "SELECT * FROM attachments WHERE message_id=? ORDER BY idx", (message_id,)).fetchall()
 
-    def attachment_mime_counts(self):
+    def attachment_category_counts(self):
         return self.conn.execute(
-            "SELECT mime, COUNT(*) AS c FROM attachments GROUP BY mime").fetchall()
+            "SELECT category, COUNT(*) AS c FROM attachments GROUP BY category").fetchall()
 
-    def list_files_by_mimes(self, mimes, limit, offset, query=None):
-        # Drop NULLs: SQLite's `IN (NULL)` silently matches nothing, which would
-        # produce a degenerate query rather than an honest empty result.
-        mimes = [m for m in mimes if m is not None]
+    def list_files_by_category(self, category, limit, offset, query=None):
         where = []
         params = []
-        if mimes:
-            placeholders = ",".join("?" * len(mimes))
-            where.append(f"a.mime IN ({placeholders})")
-            params.extend(mimes)
+        if category:
+            where.append("a.category = ?")
+            params.append(category)
         q = (query or "").strip()
         if q:
             like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"

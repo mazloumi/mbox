@@ -6,6 +6,7 @@ from .reader import (
     iter_message_spans, read_message, iter_attachments, get_display_body, parse_labels,
 )
 from .extract import extract_text, html_to_text
+from . import filetypes
 
 COMMIT_EVERY = 2000
 PROGRESS_EVERY = 500
@@ -49,7 +50,8 @@ def build_index(settings, store, progress=None):
                     store.link_label(mid, store.add_label(name))
                 att_texts = []
                 for idx, filename, mime, payload in iter_attachments(msg):
-                    store.add_attachment(mid, idx, filename, mime, len(payload))
+                    category = filetypes.category_for(mime, filename)
+                    store.add_attachment(mid, idx, filename, mime, len(payload), category)
                     att_texts.append(extract_text(filename, mime, payload))
                 store.add_fts(
                     mid, msg["subject"] or "", msg["from"] or "", msg["to"] or "",
