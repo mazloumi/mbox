@@ -2,9 +2,12 @@ services:
   mbox-viewer:
     build: .
     ports:
-      - "${PORT:-9000}:9000"
+      # Bound to localhost (127.0.0.1) ON PURPOSE: this app has NO authentication and
+      # NO HTTPS, so it must not be reachable from your network. Do not change this to
+      # "0.0.0.0" / a bare "PORT:9000" unless you understand the exposure (see README).
+      - "127.0.0.1:${PORT:-9000}:9000"
     volumes:
-      - "${MBOX_FILE:-/path/to/your-mail.mbox}:/data/mail.mbox:ro"
+      - "${MBOX_FILE:?Set MBOX_FILE to the absolute path of your .mbox file — copy .env.example to .env}:/data/mail.mbox:ro"
       - mbox-index:/index
       - "${ARCHIVE_HOST_DIR:-./mbox-viewer-archive}:/archive"
     environment:

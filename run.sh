@@ -14,17 +14,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Default mbox path (override with an argument or the MBOX_FILE env var).
-DEFAULT_MBOX="/path/to/your-mail.mbox"
-
-# 1. Resolve the mbox path from the first argument, the MBOX_FILE env var, or the default.
-MBOX_INPUT="${1:-${MBOX_FILE:-$DEFAULT_MBOX}}"
+# 1. Resolve the mbox path from the first argument or the MBOX_FILE env var.
+MBOX_INPUT="${1:-${MBOX_FILE:-}}"
 if [ -z "$MBOX_INPUT" ]; then
   cat >&2 <<'USAGE'
 Error: no mbox path given.
 
 Usage:
-  ./run.sh                                  use the default mbox path
   ./run.sh /absolute/path/to/your.mbox      point at the .mbox file
   ./run.sh /absolute/path/to/folder         folder containing exactly one .mbox
   MBOX_FILE=/path/to/your.mbox ./run.sh     or via environment variable
