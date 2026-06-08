@@ -4,13 +4,38 @@ Browse, search, and read a Google Takeout `.mbox` file in your browser. It runs 
 Docker and reads your mbox file (mounted **read-only**) from a folder on your host
 machine — nothing is uploaded anywhere and the source file is never modified.
 
+**Two ways to browse** — by **Folders** (your Gmail labels) or by **Files** (attachment
+type), via tabs in the header.
+
+**Read & search**
 - **Gmail labels become folders** (from the `X-Gmail-Labels` header)
-- **Full-text search** across message subjects, senders, bodies **and** extracted
-  attachment text (PDF / DOCX)
-- **Read messages** with sanitized HTML rendered in a sandboxed iframe
-- **View and download attachments**
-- **Tracking pixels / remote images are blocked by default**, with a per-message
-  "Load remote images" toggle
+- **Full-text search** across subjects, senders, bodies, **extracted attachment text**
+  (PDF, DOCX, legacy DOC, PPTX/PPT, XLSX/XLS, ICS, vCard) **and the file names inside
+  `winmail.dat` and zip/tar archives**
+- **Search snippets + highlighting** (see *why* a result matched) and **filters/sort**
+  (date range, sender, has-attachment, newest/oldest)
+- **Read messages** with sanitized HTML in a sandboxed iframe; **infinite scroll** (no
+  "load more" clicks)
+- **Tracking pixels / remote images blocked by default**, with a per-message "Load remote
+  images" toggle and an opt-in **durable offline image archive**
+
+**Files mode — view content in the browser**
+- Attachments grouped into **categories** (Documents, Spreadsheets, Presentations, Images,
+  Archives, **Enclosures** (winmail.dat), **Signatures**, Calendar, Contacts, Media, Other),
+  with a **filename-extension fallback** so files sent as `application/octet-stream` still
+  land in the right category
+- **Inline viewers/players:** PDF, image preview **+ a thumbnail gallery** for Images, HTML5
+  **audio/video** (with a clear notice for browser-undecodable WMA/WMV), **CSV & spreadsheet
+  tables**, ICS **calendar** cards, **vCard** contacts, **TNEF/`winmail.dat` unwrapping**
+  (lists & downloads the files inside), and **archive (zip/tar) content listings**
+- **Legacy formats** extracted via bundled `antiword` (.doc) and `catppt` (.ppt)
+
+**Export & trust**
+- **Download any message as `.eml`** (original RFC-822 bytes — re-importable anywhere)
+- **Bulk export** — zip all of a category's (or a search's) attachments
+- **Integrity report** in the footer (messages indexed vs. skipped, with reasons)
+- **Schema-version guard** — a code change that needs a re-index triggers it automatically
+- **Keyboard shortcuts:** `/` focus search · `j`/`k` (or ↑/↓) next/prev · `Esc` blur search
 
 ## Requirements
 
@@ -89,15 +114,27 @@ host port; the container always listens on `9000` internally.
 
 ## Using the viewer
 
-- **Folders (left pane):** your Gmail labels, each with its message count. Click one
-  to list its messages. A message with multiple labels appears under each.
-- **Message list (middle pane):** click a message to open it. If a label has more
-  than 50 messages, a **"Load more…"** row appears at the bottom to page through them.
-- **Search box:** type to full-text search subjects, senders, bodies, and attachment
-  text. If a folder is selected, search is scoped to that folder.
-- **Reader (right pane):** shows the message, its attachments (click to download),
-  and the body. Remote images are blocked by default; click **"Load remote images"**
-  to load them for that message.
+- **Folders / Files tabs (header):** switch the left pane between Gmail labels and
+  attachment categories. Clicking the active tab collapses/expands the left pane.
+- **Folders mode — left pane:** your Gmail labels with message counts; click one to list
+  its messages (a message with multiple labels appears under each).
+- **Files mode — left pane:** attachment categories with counts; click one to list its
+  files in the middle pane. Click a file to view it in the reader (PDF/image inline,
+  audio/video player, CSV/spreadsheet table, calendar/contact card, archive/winmail.dat
+  contents, or extracted text). **Images** show as a thumbnail **gallery**. A **Download
+  all** button zips the current category's (or search's) attachments.
+- **Message list (middle pane):** **scrolls infinitely** — the next page loads
+  automatically as you reach the bottom. Search results show a highlighted snippet.
+- **Search box + filters:** full-text search over subjects, senders, bodies, and
+  attachment/inner-file text. Use the filter row to narrow by **date range**, **sender**,
+  **has-attachment**, and **sort** order. Search is scoped to a selected folder.
+- **Reader (right pane):** the message, its attachments (click to download), a **Download
+  .eml** link, and the sanitized body. Remote images are blocked by default; click **"Load
+  remote images"** to load them for that message.
+- **Keyboard:** `/` focuses search, `j`/`k` (or ↑/↓) move between messages, `Esc` leaves
+  the search box.
+- **Footer:** the mbox name, index state, image-archive stats, and an **integrity** line
+  (`N indexed · M skipped`, with the skip reasons on hover).
 
 ## Re-indexing
 
@@ -123,6 +160,21 @@ Your complete offline copy is **the mbox file + the archive folder**. Back up th
 and you can delete the originals in Gmail, drop/rebuild the index, or move machines —
 everything still renders offline. Re-running "Archive remote images" on an unchanged mbox
 is an instant no-op (it records the mbox size/mtime and skips re-downloading).
+
+## Roadmap
+
+Ideas not yet built (rough priority order):
+
+- **Conversation threading** — group replies into threads using Gmail's `X-GM-THRID`
+- **Local state** — stars, notes, and saved searches (stored alongside the durable archive,
+  not in the disposable index)
+- **Advanced query syntax** — `from:`, `has:attachment`, date operators in the search box
+- **Rendered office/slide previews** — pixel-faithful pages via headless LibreOffice
+  (heavier dependency; today slides/sheets are text/table views)
+- **More archive formats** — `.rar` / `.7z` content listing
+- **Authentication + HTTPS** — for exposing the viewer beyond `localhost` (e.g. behind a
+  reverse proxy); not needed for the default local-only use
+- **Analytics** — top senders / volume-over-time over the whole archive
 
 ## Development (run without Docker)
 
