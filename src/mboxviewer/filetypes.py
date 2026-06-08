@@ -2,7 +2,7 @@ import os
 
 CATEGORY_ORDER = [
     "Documents", "Spreadsheets", "Presentations", "Images",
-    "Archives", "Calendar", "Contacts", "Media", "Other",
+    "Archives", "Enclosures", "Signatures", "Calendar", "Contacts", "Media", "Other",
 ]
 
 _DOCUMENTS = {
@@ -25,6 +25,11 @@ _ARCHIVES = {
     "application/x-gzip", "application/x-tar", "application/x-rar-compressed",
     "application/vnd.rar", "application/x-7z-compressed",
 }
+_ENCLOSURES = {"application/ms-tnef", "application/ms-tnefx"}
+_SIGNATURES = {
+    "application/pkcs7-signature", "application/x-pkcs7-signature",
+    "application/pgp-signature", "application/pkcs7-mime",
+}
 # Keep in sync with extract._CALENDAR_MIMES (separate module, no shared import).
 _CALENDAR = {"text/calendar", "application/ics", "text/x-vcalendar"}
 # Keep in sync with extract._VCARD_MIMES (separate module, no shared import).
@@ -42,6 +47,8 @@ for _cat, _exts in {
     "Contacts": ".vcf",
     "Media": (".mp3 .m4a .wav .aac .ogg .oga .flac .opus .wma "
               ".mp4 .m4v .mov .avi .wmv .mkv .webm .mpg .mpeg .3gp"),
+    "Enclosures": ".dat",
+    "Signatures": ".p7s .p7m .asc .sig",
 }.items():
     for _e in _exts.split():
         _EXT_CATEGORY[_e] = _cat
@@ -68,6 +75,10 @@ def category_for_mime(mime):
         return "Presentations"
     if m in _ARCHIVES:
         return "Archives"
+    if m in _ENCLOSURES:
+        return "Enclosures"
+    if m in _SIGNATURES:
+        return "Signatures"
     if m.startswith("text/"):
         return "Documents"
     return "Other"

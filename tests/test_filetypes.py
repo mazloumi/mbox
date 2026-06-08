@@ -66,5 +66,51 @@ def test_category_for_extension_fallback():
 def test_category_for_real_mime_wins_and_unknown():
     from mboxviewer.filetypes import category_for
     assert category_for("application/pdf", "x.bin") == "Documents"     # real mime wins
-    assert category_for("application/octet-stream", "x.dat") == "Other"  # unknown ext
     assert category_for("application/octet-stream", "") == "Other"
+
+
+# --- Task 2: Enclosures + Signatures ---
+
+def test_enclosures_in_category_order():
+    assert "Enclosures" in CATEGORY_ORDER
+
+
+def test_signatures_in_category_order():
+    assert "Signatures" in CATEGORY_ORDER
+
+
+def test_enclosures_after_archives_in_order():
+    idx_archives = CATEGORY_ORDER.index("Archives")
+    idx_enclosures = CATEGORY_ORDER.index("Enclosures")
+    assert idx_enclosures == idx_archives + 1
+
+
+def test_signatures_after_enclosures_in_order():
+    idx_enclosures = CATEGORY_ORDER.index("Enclosures")
+    idx_signatures = CATEGORY_ORDER.index("Signatures")
+    assert idx_signatures == idx_enclosures + 1
+
+
+def test_enclosures_mime():
+    assert category_for_mime("application/ms-tnef") == "Enclosures"
+    assert category_for_mime("application/ms-tnefx") == "Enclosures"
+
+
+def test_signatures_mime():
+    assert category_for_mime("application/pkcs7-signature") == "Signatures"
+    assert category_for_mime("application/x-pkcs7-signature") == "Signatures"
+    assert category_for_mime("application/pgp-signature") == "Signatures"
+    assert category_for_mime("application/pkcs7-mime") == "Signatures"
+
+
+def test_enclosures_ext_fallback():
+    from mboxviewer.filetypes import category_for
+    assert category_for("application/octet-stream", "x.dat") == "Enclosures"
+
+
+def test_signatures_ext_fallback():
+    from mboxviewer.filetypes import category_for
+    assert category_for("application/octet-stream", "s.p7s") == "Signatures"
+    assert category_for("application/octet-stream", "s.p7m") == "Signatures"
+    assert category_for("application/octet-stream", "s.asc") == "Signatures"
+    assert category_for("application/octet-stream", "s.sig") == "Signatures"
