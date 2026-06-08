@@ -347,3 +347,11 @@ def test_tnef_inner_endpoints(tmp_path):
     # a non-TNEF attachment lists nothing; bad inner index 404s
     assert c.get(f"/api/messages/{mid}/attachments/1/inner").json()["files"] == []
     assert c.get(f"/api/messages/{mid}/attachments/0/inner/9").status_code == 404
+
+
+def test_favicon_served(client):
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert b"<svg" in r.content
+    assert client.get("/static/favicon.svg").status_code == 200
