@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 ENV PYTHONPATH=/app/src \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     MBOX_PATH=/data/mail.mbox \
     INDEX_PATH=/index/index.db \
     ARCHIVE_DIR=/archive \

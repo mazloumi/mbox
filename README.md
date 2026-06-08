@@ -62,7 +62,25 @@ Your mbox is mounted **read-only** and is never modified; nothing is uploaded an
   [takeout.google.com](https://takeout.google.com/) → deselect all, select **Mail** → create
   the export → download and unzip it. The `.mbox` is under `Takeout/Mail/` (often named
   `All mail Including Spam and Trash.mbox`).
-- Free disk space for the search index (roughly 1–2× the mbox size), stored in a Docker volume.
+- A little free disk for the search index (≈2% of the mbox size — see below).
+
+## System requirements
+
+The container is deliberately lightweight — it **streams** the mbox (never loads it whole) and
+keeps a compact index. Real numbers from a **13 GB / 54,000-message** Google Takeout export:
+
+| Resource | Need | Notes |
+|---|---|---|
+| **Docker** | Docker Desktop (macOS/Windows) or Docker Engine + compose (Linux) | Give Docker Desktop ≥ **2 GB RAM** (4 GB comfortable) and a couple of GB for its own images. macOS 12+/Apple-Silicon or Intel; Windows 10/11 64-bit with the WSL 2 backend. |
+| **Disk — mbox** | the size of your `.mbox` (e.g. ~15 GB) | Mounted **read-only**; not copied. |
+| **Disk — index** | **≈ 2% of the mbox** | The 13 GB mailbox produced a ~125 MB index; a 15 GB mailbox needs only a few hundred MB (in a Docker volume). |
+| **Disk — image archive** | optional, varies | Only if you use "Archive remote images"; sized by how many images you save. |
+| **RAM (container)** | **~60 MB idle**, a few hundred MB peak | Peaks briefly while extracting a large PDF/Office attachment during indexing. ~512 MB of headroom is plenty. |
+| **CPU** | **1 core works**; ~0% when idle | Indexing is single-threaded; 2+ cores just make the first index finish a bit sooner. |
+
+The **first run indexes the whole mbox** (single-threaded) — a few minutes for a 15 GB file; after
+that the index is reused and startup is instant. You do **not** need to raise Docker's default
+CPU/RAM limits for this app.
 
 ## Run it — macOS / Linux
 
