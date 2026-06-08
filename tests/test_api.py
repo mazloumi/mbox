@@ -300,3 +300,40 @@ def test_archive_status_includes_persisted_state(tmp_path, image_server):
     run_archive(settings, c.app.state.store, c.app.state.asset_store, ArchiveStatus())
     after = c.get("/api/archive/status").json()
     assert after["archived"]["ok"] == 1 and after["up_to_date"] is True
+
+
+def test_tnef_inner_endpoints(tmp_path):
+    import io, struct
+    from email.message import EmailMessage
+    from email.generator import BytesGenerator
+    from tnefparse import TNEF
+    def attr(level, att, data):
+        return struct.pack("<BII", level, att, len(data)) + data + struct.pack("<H", sum(data) & 0xFFFF)
+    raw = struct.pack("<I", 0x223E9F78) + struct.pack("<H", 1)
+    raw += attr(0x01, TNEF.ATTBODY, b"body\x00")
+    raw += attr(0x02, TNEF.ATTATTACHRENDDATA, b"\x00" * 16)
+    raw += attr(0x02, TNEF.ATTATTACHTITLE, b"report.txt\x00")
+    raw += attr(0x02, TNEF.ATTATTACHDATA, b"INNER-BYTES")
+    m = EmailMessage()
+    m["Subject"] = "x"; m["From"] = "a@x.com"; m["To"] = "b@x.com"
+    m["Date"] = "Mon, 01 Jan 2024 10:00:00 +0000"; m["X-Gmail-Labels"] = "Inbox"
+    m.set_content("body")
+    m.add_attachment(raw, maintype="application", subtype="ms-tnef", filename="winmail.dat")
+    m.add_attachment(b"plain", maintype="text", subtype="plain", filename="n.txt")
+    buf = io.BytesIO(); BytesGenerator(buf).flatten(m); data = buf.getvalue()
+    p = tmp_path / "t.mbox"
+    p.write_bytes(b"From - x\n" + data + (b"" if data.endswith(b"\n") else b"\n") + b"\n")
+    settings = Settings(mbox_path=str(p), index_path=str(tmp_path / "i.db"),
+                        archive_dir=str(tmp_path / "arch"))
+    c = TestClient(create_app(settings, index_in_background=False))
+    mid = c.get("/api/messages").json()["messages"][0]["id"]
+    listing = c.get(f"/api/messages/{mid}/attachments/0/inner").json()
+    assert listing["files"][0]["name"] == "report.txt"
+    assert listing["files"][0]["mime"] == "text/plain"
+    assert listing["files"][0]["size"] == len(b"INNER-BYTES")
+    r = c.get(f"/api/messages/{mid}/attachments/0/inner/0")
+    assert r.content == b"INNER-BYTES"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    # a non-TNEF attachment lists nothing; bad inner index 404s
+    assert c.get(f"/api/messages/{mid}/attachments/1/inner").json()["files"] == []
+    assert c.get(f"/api/messages/{mid}/attachments/0/inner/9").status_code == 404
