@@ -1,5 +1,6 @@
 from mboxviewer.reader import (
-    iter_message_spans, read_message, iter_attachments, get_display_body, parse_labels,
+    iter_message_spans, read_message, read_message_bytes,
+    iter_attachments, get_display_body, parse_labels,
 )
 
 
@@ -33,6 +34,14 @@ def test_display_body_prefers_html(sample_mbox):
     msg = read_message(sample_mbox, *spans[0])
     mime, content = get_display_body(msg)
     assert mime == "text/html" and "<b>Bob</b>" in content
+
+
+def test_read_message_bytes_returns_rfc822(sample_mbox):
+    spans = list(iter_message_spans(sample_mbox))
+    offset, length = spans[0]
+    raw = read_message_bytes(sample_mbox, offset, length)
+    assert not raw.startswith(b"From "), "envelope line must be stripped"
+    assert b"Subject:" in raw or b"From:" in raw, "must contain RFC-822 headers"
 
 
 def test_read_message_unescapes_mboxrd_from(tmp_path):
