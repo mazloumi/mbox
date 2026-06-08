@@ -291,6 +291,11 @@ def test_files_no_category_no_query_empty(client):
     assert client.get("/api/files").json()["files"] == []
 
 
+def test_filetypes_uses_stored_category(client):
+    cats = {c["category"]: c["count"] for c in client.get("/api/filetypes").json()}
+    assert cats.get("Documents") == 2  # from the stored category column, not mime aggregation
+
+
 def test_archive_status_includes_persisted_state(tmp_path, image_server):
     from mboxviewer.archive import ArchiveStatus, run_archive
     base, _ = image_server

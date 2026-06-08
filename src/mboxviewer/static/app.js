@@ -190,8 +190,7 @@ function parseCsv(text) {
   return rows.filter(r => r.length > 1 || (r.length === 1 && r[0] !== ""));
 }
 
-function renderCsvTable(text) {
-  const rows = parseCsv(text);
+function renderTableRows(rows) {
   const CAP = 500;
   const shown = rows.slice(0, CAP + 1); // +1 header
   const head = shown[0] || [];
@@ -201,6 +200,29 @@ function renderCsvTable(text) {
   let html = `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
   if (rows.length - 1 > CAP) html += `<p class="csv-note">Showing first ${CAP} of ${rows.length - 1} rows.</p>`;
   return html;
+}
+
+function renderCsvTable(text) { return renderTableRows(parseCsv(text)); }
+
+function parseTsv(text) {
+  return text.split("\n").filter(l => l !== "").map(l => l.split("\t"));
+}
+
+const _SPREADSHEET_MIMES = new Set([
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/x-msexcel", "application/msexcel", "application/excel",
+]);
+function isSpreadsheet(m, name) {
+  return _SPREADSHEET_MIMES.has(m) || /\.(xls|xlsx|ods|xlsm)$/.test(name);
+}
+
+const _UNPLAYABLE_MIMES = new Set([
+  "audio/x-ms-wma", "video/x-ms-wmv", "video/x-ms-asf", "audio/x-ms-wax",
+]);
+function isUnplayable(m, name) {
+  return _UNPLAYABLE_MIMES.has(m) || /\.(wma|wmv|asf)$/.test(name);
 }
 
 async function openFile(mid, idx, filename, mime, size) {
@@ -213,9 +235,24 @@ async function openFile(mid, idx, filename, mime, size) {
   readerAtt.innerHTML =
     `<a href="/api/messages/${mid}/attachments/${idx}" download>Download</a>` +
     ` <button type="button" class="open-email" onclick="openEmailFromFile(${mid})">Open email</button>`;
+  // Windows Media can't be decoded by any browser — catch it by MIME OR extension
+  // (these files often arrive as application/octet-stream) before trying a player.
+  if (isUnplayable(m, name)) {
+    showOnlyPane(readerText);
+    readerText.textContent = "This format (Windows Media) can't be played in the browser. Use the Download link above.";
+    return;
+  }
   if (m.startsWith("image/")) { showOnlyPane(readerImage); readerImage.src = inlineUrl; return; }
-  if (m.startsWith("audio/")) { showOnlyPane(readerAudio); readerAudio.src = inlineUrl; return; }
-  if (m.startsWith("video/")) { showOnlyPane(readerVideo); readerVideo.src = inlineUrl; return; }
+  if (m.startsWith("audio/") || m.startsWith("video/")) {
+    const pane = m.startsWith("audio/") ? readerAudio : readerVideo;
+    showOnlyPane(pane);
+    pane.onerror = () => {
+      showOnlyPane(readerText);
+      readerText.textContent = "This file couldn't be played in the browser. Use the Download link above.";
+    };
+    pane.src = inlineUrl;
+    return;
+  }
   if (m === "text/csv" || name.endsWith(".csv")) {
     showOnlyPane(readerTable);
     readerTable.innerHTML = "Loading…";
@@ -223,6 +260,17 @@ async function openFile(mid, idx, filename, mime, size) {
       const d = await getJSON(`/api/files/${mid}/${idx}/text`);
       readerTable.innerHTML = (d.text && d.text.trim())
         ? renderCsvTable(d.text) : "No content.";
+    } catch (err) {
+      readerTable.textContent = "Failed to load file: " + err.message;
+    }
+    return;
+  }
+  if (isSpreadsheet(m, name)) {
+    showOnlyPane(readerTable);
+    readerTable.innerHTML = "Loading…";
+    try {
+      const d = await getJSON(`/api/files/${mid}/${idx}/text`);
+      readerTable.innerHTML = (d.text && d.text.trim()) ? renderTableRows(parseTsv(d.text)) : "No content.";
     } catch (err) {
       readerTable.textContent = "Failed to load file: " + err.message;
     }

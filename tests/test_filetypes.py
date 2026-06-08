@@ -42,3 +42,29 @@ def test_contacts_mimes():
     for m in ["text/x-vcard", "text/vcard", "application/vcard", "text/directory"]:
         assert category_for_mime(m) == "Contacts", m
     assert "Contacts" in CATEGORY_ORDER
+
+
+def test_category_for_extension_fallback():
+    from mboxviewer.filetypes import category_for
+    cases = {
+        ("application/octet-stream", "x.pdf"): "Documents",
+        ("application/x-pdf", "x.pdf"): "Documents",
+        ("application/force-download", "report.doc"): "Documents",
+        ("application/octet-stream", "s.xlsx"): "Spreadsheets",
+        ("application/octet-stream", "d.pps"): "Presentations",
+        ("application/octet-stream", "a.mp3"): "Media",
+        ("application/octet-stream", "v.wmv"): "Media",
+        ("application/octet-stream", "c.ics"): "Calendar",
+        ("application/octet-stream", "k.vcf"): "Contacts",
+        ("application/octet-stream", "p.jpg"): "Images",
+        ("application/octet-stream", "a.zip"): "Archives",
+    }
+    for (mime, fn), expected in cases.items():
+        assert category_for(mime, fn) == expected, (mime, fn)
+
+
+def test_category_for_real_mime_wins_and_unknown():
+    from mboxviewer.filetypes import category_for
+    assert category_for("application/pdf", "x.bin") == "Documents"     # real mime wins
+    assert category_for("application/octet-stream", "x.dat") == "Other"  # unknown ext
+    assert category_for("application/octet-stream", "") == "Other"

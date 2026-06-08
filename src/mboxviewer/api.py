@@ -4,7 +4,6 @@ import re
 import sys
 import threading
 import urllib.parse
-from collections import Counter
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -254,26 +253,18 @@ def create_app(settings, index_in_background=True):
 
     @app.get("/api/filetypes")
     def filetypes_route():
-        counter = Counter()
-        for r in store.attachment_mime_counts():
-            counter[filetypes.category_for_mime(r["mime"])] += r["c"]
-        return [{"category": cat, "count": counter[cat]}
-                for cat in filetypes.CATEGORY_ORDER if counter[cat]]
+        counts = {r["category"]: r["c"] for r in store.attachment_category_counts()}
+        return [{"category": cat, "count": counts[cat]}
+                for cat in filetypes.CATEGORY_ORDER if counts.get(cat)]
 
     @app.get("/api/files")
     def files(category: Optional[str] = None, q: Optional[str] = None,
               page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
         query = (q or "").strip()
-        mimes = []
-        if category:
-            mimes = [r["mime"] for r in store.attachment_mime_counts()
-                     if filetypes.category_for_mime(r["mime"]) == category]
-            if not mimes:
-                return {"files": [], "page": page}
-        elif not query:
+        if not category and not query:
             return {"files": [], "page": page}
         offset = (page - 1) * page_size
-        rows = store.list_files_by_mimes(mimes, page_size, offset, query=query or None)
+        rows = store.list_files_by_category(category or None, page_size, offset, query=query or None)
         return {"files": [{"message_id": r["message_id"], "idx": r["idx"],
                            "filename": r["filename"], "size": r["size"], "mime": r["mime"],
                            "subject": r["subject"], "date": r["date"]} for r in rows],
