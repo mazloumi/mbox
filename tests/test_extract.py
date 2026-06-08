@@ -153,3 +153,94 @@ def test_extract_textlike_application_types():
 def test_extract_ics_no_event_returns_empty():
     from mboxviewer.extract import extract_text
     assert extract_text("x.ics", "text/calendar", b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n") == ""
+
+
+def test_extract_vcard():
+    from mboxviewer.extract import extract_text
+    vcf = ("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Alice Smith\r\nORG:Acme\r\n"
+           "TITLE:Engineer\r\nEMAIL:alice@example.com\r\n"
+           "EMAIL;TYPE=work:a.smith@acme.com\r\nTEL:+1-555-1234\r\nEND:VCARD\r\n")
+    out = extract_text("c.vcf", "text/x-vcard", vcf.encode())
+    assert "Name: Alice Smith" in out
+    assert "alice@example.com" in out and "a.smith@acme.com" in out
+    assert "+1-555-1234" in out and "Acme" in out
+
+
+def test_extract_vcard_no_card_empty():
+    from mboxviewer.extract import extract_text
+    assert extract_text("x.vcf", "text/x-vcard", b"not a vcard") == ""
+
+
+def test_extract_vcard_n_fallback_and_fold():
+    # No FN: the N value (folded across two physical lines) becomes the Name.
+    from mboxviewer.extract import extract_text
+    vcf = "BEGIN:VCARD\r\nN:Smith;Bob \r\n Junior\r\nEND:VCARD\r\n"
+    out = extract_text("c.vcf", "text/x-vcard", vcf.encode())
+    assert "Name: Smith Bob Junior" in out
+
+
+def test_doc_salvage_text_utf16():
+    from mboxviewer.extract import _salvage_text
+    raw = b"\x07\x00" + "Quarterly Report Growth".encode("utf-16-le") + b"\x00\x13"
+    assert "Quarterly Report Growth" in _salvage_text(raw)
+
+
+def test_doc_salvage_text_cp1252():
+    from mboxviewer.extract import _salvage_text
+    raw = b"\x00\x01" + "Hello cp1252 World".encode("cp1252") + b"\xff"
+    assert "Hello cp1252 World" in _salvage_text(raw)
+
+
+def test_extract_doc_non_ole_returns_empty():
+    from mboxviewer.extract import extract_text
+    assert extract_text("a.doc", "application/msword", b"not an ole file") == ""
+
+
+import struct
+from tnefparse import TNEF as _TNEF
+
+
+def _build_tnef(body_text, files):
+    def attr(level, att, data):
+        return struct.pack("<BII", level, att, len(data)) + data + struct.pack("<H", sum(data) & 0xFFFF)
+    out = struct.pack("<I", 0x223E9F78) + struct.pack("<H", 0x0001)
+    out += attr(0x01, _TNEF.ATTBODY, body_text.encode() + b"\x00")
+    for name, data in files:
+        out += attr(0x02, _TNEF.ATTATTACHRENDDATA, b"\x00" * 16)
+        out += attr(0x02, _TNEF.ATTATTACHTITLE, name.encode() + b"\x00")
+        out += attr(0x02, _TNEF.ATTATTACHDATA, data)
+    return out
+
+
+def test_extract_tnef_text():
+    from mboxviewer.extract import extract_text
+    raw = _build_tnef("Hello from Outlook", [("report.txt", b"INNER REPORT 999")])
+    out = extract_text("winmail.dat", "application/ms-tnef", raw)
+    assert "Contained files" in out and "report.txt" in out
+    assert "Hello from Outlook" in out and "INNER REPORT 999" in out
+
+
+def test_iter_tnef_attachments():
+    from mboxviewer.extract import iter_tnef_attachments
+    raw = _build_tnef("body", [("report.txt", b"DATA1"), ("p.pdf", b"%PDF-junk")])
+    items = iter_tnef_attachments(raw)
+    assert [(n, m) for (n, m, _b) in items] == [("report.txt", "text/plain"), ("p.pdf", "application/pdf")]
+    assert items[0][2] == b"DATA1"
+
+
+def test_extract_tnef_garbage_empty():
+    from mboxviewer.extract import extract_text
+    assert extract_text("winmail.dat", "application/ms-tnef", b"not tnef") == ""
+
+
+def test_iter_tnef_attachments_nameless_fallback():
+    # An attachment with no ATTACHTITLE falls back to the "attachment" name.
+    import struct
+    from mboxviewer.extract import iter_tnef_attachments
+    def attr(level, att, data):
+        return struct.pack("<BII", level, att, len(data)) + data + struct.pack("<H", sum(data) & 0xFFFF)
+    raw = struct.pack("<I", 0x223E9F78) + struct.pack("<H", 0x0001)
+    raw += attr(0x02, _TNEF.ATTATTACHRENDDATA, b"\x00" * 16)
+    raw += attr(0x02, _TNEF.ATTATTACHDATA, b"NONAME")
+    items = iter_tnef_attachments(raw)
+    assert items == [("attachment", "application/octet-stream", b"NONAME")]

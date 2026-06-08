@@ -228,6 +228,27 @@ async function openFile(mid, idx, filename, mime, size) {
     }
     return;
   }
+  if (m === "application/ms-tnef" || name.endsWith(".dat")) {
+    showOnlyPane(readerText);
+    readerText.textContent = "Loading…";
+    let contained = "";
+    try {
+      const list = await getJSON(`/api/messages/${mid}/attachments/${idx}/inner`);
+      if (list.files && list.files.length) {
+        contained = " · Contained: " + list.files.map(f =>
+          `<a href="/api/messages/${mid}/attachments/${idx}/inner/${f.k}" download>${escapeHtml(f.name)} (${humanSize(f.size)})</a>`
+        ).join(" ");
+      }
+    } catch (e) { /* ignore — still show text */ }
+    readerAtt.innerHTML += contained;
+    try {
+      const d = await getJSON(`/api/files/${mid}/${idx}/text`);
+      readerText.textContent = (d.text && d.text.trim()) ? d.text : "No extractable content.";
+    } catch (err) {
+      readerText.textContent = "Failed to load: " + err.message;
+    }
+    return;
+  }
   showOnlyPane(readerText);
   readerText.textContent = "Loading…";
   try {

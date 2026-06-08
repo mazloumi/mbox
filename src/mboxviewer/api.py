@@ -20,7 +20,7 @@ from . import assets
 from . import filetypes
 from .assetstore import AssetStore
 from .archive import ArchiveStatus, run_archive
-from .extract import extract_text
+from .extract import extract_text, iter_tnef_attachments
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -172,6 +172,44 @@ def create_app(settings, index_in_background=True):
                         "X-Content-Type-Options": "nosniff",
                     })
         raise HTTPException(404, "attachment not found")
+
+    def _tnef_inner(message_id, idx):
+        row = store.get_message_row(message_id)
+        if row is None:
+            raise HTTPException(404, "message not found")
+        try:
+            msg = read_message(settings.mbox_path, row["offset"], row["length"])
+        except FileNotFoundError:
+            raise HTTPException(503, "mbox file not available")
+        for a_idx, filename, mime, payload in iter_attachments(msg):
+            if a_idx == idx:
+                if mime != "application/ms-tnef":
+                    return []
+                try:
+                    return iter_tnef_attachments(payload)
+                except Exception:
+                    return []
+        raise HTTPException(404, "attachment not found")
+
+    @app.get("/api/messages/{message_id}/attachments/{idx}/inner")
+    def tnef_inner_list(message_id: int, idx: int):
+        inner = _tnef_inner(message_id, idx)
+        return {"files": [{"k": k, "name": name, "mime": mime, "size": len(blob)}
+                          for k, (name, mime, blob) in enumerate(inner)]}
+
+    @app.get("/api/messages/{message_id}/attachments/{idx}/inner/{k}")
+    def tnef_inner_file(message_id: int, idx: int, k: int, inline: bool = False):
+        inner = _tnef_inner(message_id, idx)
+        if k < 0 or k >= len(inner):
+            raise HTTPException(404, "inner attachment not found")
+        name, mime, blob = inner[k]
+        safe_inline = inline and mime in _SAFE_INLINE_MIMES
+        return Response(
+            content=blob, media_type=mime,
+            headers={
+                "Content-Disposition": _content_disposition(name, inline=safe_inline),
+                "X-Content-Type-Options": "nosniff",
+            })
 
     @app.post("/api/archive/start")
     def archive_start():
