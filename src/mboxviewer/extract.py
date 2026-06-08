@@ -1,5 +1,9 @@
 import io
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from html.parser import HTMLParser
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -233,6 +237,58 @@ def _vcard_text(data: bytes) -> str:
     return "\n".join(out).strip()
 
 
+def _salvage_text(raw: bytes) -> str:
+    """Best-effort text recovery from a binary stream: try UTF-16LE and CP1252,
+    keep printable runs, return whichever has more alphabetic content."""
+    def clean(s):
+        s = "".join(ch if (ch.isprintable() or ch in "\n\t ") else " " for ch in s)
+        s = re.sub(r"[ \t]{2,}", " ", s)
+        s = re.sub(r"\n{2,}", "\n", s)
+        return s.strip()
+    a = clean(raw.decode("utf-16-le", "ignore"))
+    b = clean(raw.decode("cp1252", "ignore"))
+    score = lambda s: sum(c.isalpha() for c in s)
+    return a if score(a) >= score(b) else b
+
+
+def _antiword_text(data: bytes) -> str:
+    exe = shutil.which("antiword")
+    if not exe:
+        return ""
+    path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as f:
+            f.write(data)
+            path = f.name
+        proc = subprocess.run([exe, path], capture_output=True, timeout=30)
+        return proc.stdout.decode("utf-8", "replace") if proc.returncode == 0 else ""
+    except Exception:
+        return ""
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
+def _doc_text(data: bytes) -> str:
+    text = _antiword_text(data)        # accurate when antiword is installed (Docker image)
+    if text.strip():
+        return text
+    import olefile                     # pure-Python fallback (dev venv, or antiword miss)
+    if not olefile.isOleFile(io.BytesIO(data)):
+        return ""
+    ole = olefile.OleFileIO(io.BytesIO(data))
+    try:
+        if not ole.exists("WordDocument"):
+            return ""
+        raw = ole.openstream("WordDocument").read()
+    finally:
+        ole.close()
+    return _salvage_text(raw)
+
+
 def extract_text(filename: str, mime: str, data: bytes) -> str:
     """Best-effort plain-text extraction. Returns '' for unsupported or on any error."""
     mime = (mime or "").lower()
@@ -247,6 +303,8 @@ def extract_text(filename: str, mime: str, data: bytes) -> str:
             return _xlsx_text(data)
         if mime == _XLS_MIME:
             return _xls_text(data)
+        if mime == "application/msword":
+            return _doc_text(data)
         if mime in _CALENDAR_MIMES:
             return _ics_text(data)
         if mime in _VCARD_MIMES:

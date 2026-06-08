@@ -169,3 +169,20 @@ def test_extract_vcard():
 def test_extract_vcard_no_card_empty():
     from mboxviewer.extract import extract_text
     assert extract_text("x.vcf", "text/x-vcard", b"not a vcard") == ""
+
+
+def test_doc_salvage_text_utf16():
+    from mboxviewer.extract import _salvage_text
+    raw = b"\x07\x00" + "Quarterly Report Growth".encode("utf-16-le") + b"\x00\x13"
+    assert "Quarterly Report Growth" in _salvage_text(raw)
+
+
+def test_doc_salvage_text_cp1252():
+    from mboxviewer.extract import _salvage_text
+    raw = b"\x00\x01" + "Hello cp1252 World".encode("cp1252") + b"\xff"
+    assert "Hello cp1252 World" in _salvage_text(raw)
+
+
+def test_extract_doc_non_ole_returns_empty():
+    from mboxviewer.extract import extract_text
+    assert extract_text("a.doc", "application/msword", b"not an ole file") == ""
