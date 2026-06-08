@@ -1,4 +1,5 @@
 import io
+import mimetypes
 import os
 import re
 import shutil
@@ -288,6 +289,42 @@ def _doc_text(data: bytes) -> str:
     return _salvage_text(raw)
 
 
+def iter_tnef_attachments(data: bytes):
+    """[(name, mime, bytes)] for each inner attachment of a TNEF blob."""
+    from tnefparse import TNEF
+    tnef = TNEF(data, do_checksum=False)
+    out = []
+    for a in tnef.attachments:
+        name = (a.name or "").strip() or "attachment"
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        out.append((name, mime, a.data))
+    return out
+
+
+def _tnef_text(data: bytes) -> str:
+    from tnefparse import TNEF
+    tnef = TNEF(data, do_checksum=False)
+    parts = []
+    inner = list(iter_tnef_attachments(data))
+    if inner:
+        parts.append("Contained files: " + ", ".join(n for (n, _m, _b) in inner))
+    body = tnef.body
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", "replace")
+    if body and body.strip():
+        parts.append(body.replace("\x00", "").strip())
+    elif tnef.htmlbody:
+        hb = tnef.htmlbody
+        if isinstance(hb, bytes):
+            hb = hb.decode("utf-8", "replace")
+        parts.append(html_to_text(hb))
+    for name, mime, blob in inner:
+        sub = extract_text(name, mime, blob)
+        if sub and sub.strip():
+            parts.append(sub.strip())
+    return "\n\n".join(p for p in parts if p).strip()
+
+
 def extract_text(filename: str, mime: str, data: bytes) -> str:
     """Best-effort plain-text extraction. Returns '' for unsupported or on any error."""
     mime = (mime or "").lower()
@@ -304,6 +341,8 @@ def extract_text(filename: str, mime: str, data: bytes) -> str:
             return _xls_text(data)
         if mime == "application/msword":
             return _doc_text(data)
+        if mime == "application/ms-tnef":
+            return _tnef_text(data)
         if mime in _CALENDAR_MIMES:
             return _ics_text(data)
         if mime in _VCARD_MIMES:

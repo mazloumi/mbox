@@ -186,3 +186,40 @@ def test_doc_salvage_text_cp1252():
 def test_extract_doc_non_ole_returns_empty():
     from mboxviewer.extract import extract_text
     assert extract_text("a.doc", "application/msword", b"not an ole file") == ""
+
+
+import struct
+from tnefparse import TNEF as _TNEF
+
+
+def _build_tnef(body_text, files):
+    def attr(level, att, data):
+        return struct.pack("<BII", level, att, len(data)) + data + struct.pack("<H", sum(data) & 0xFFFF)
+    out = struct.pack("<I", 0x223E9F78) + struct.pack("<H", 0x0001)
+    out += attr(0x01, _TNEF.ATTBODY, body_text.encode() + b"\x00")
+    for name, data in files:
+        out += attr(0x02, _TNEF.ATTATTACHRENDDATA, b"\x00" * 16)
+        out += attr(0x02, _TNEF.ATTATTACHTITLE, name.encode() + b"\x00")
+        out += attr(0x02, _TNEF.ATTATTACHDATA, data)
+    return out
+
+
+def test_extract_tnef_text():
+    from mboxviewer.extract import extract_text
+    raw = _build_tnef("Hello from Outlook", [("report.txt", b"INNER REPORT 999")])
+    out = extract_text("winmail.dat", "application/ms-tnef", raw)
+    assert "Contained files" in out and "report.txt" in out
+    assert "Hello from Outlook" in out and "INNER REPORT 999" in out
+
+
+def test_iter_tnef_attachments():
+    from mboxviewer.extract import iter_tnef_attachments
+    raw = _build_tnef("body", [("report.txt", b"DATA1"), ("p.pdf", b"%PDF-junk")])
+    items = iter_tnef_attachments(raw)
+    assert [(n, m) for (n, m, _b) in items] == [("report.txt", "text/plain"), ("p.pdf", "application/pdf")]
+    assert items[0][2] == b"DATA1"
+
+
+def test_extract_tnef_garbage_empty():
+    from mboxviewer.extract import extract_text
+    assert extract_text("winmail.dat", "application/ms-tnef", b"not tnef") == ""
