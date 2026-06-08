@@ -22,7 +22,8 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 #reader-attachments a { display: inline-block; margin-right: 8px; padding: 4px 8px;
   background: #eef; border-radius: 4px; text-decoration: none; font-size: 13px; }
 #reader-body { flex: 1; border: 0; width: 100%; }
-#load-more { text-align: center; color: #36c; font-weight: 600; }
+#load-more { text-align: center; color: #888; cursor: default; }
+#load-more:hover { background: none; }
 #load-remote { margin-top: 8px; font-size: 12px; padding: 3px 8px; cursor: pointer; }
 #reader-pdf { flex: 1; border: 0; width: 100%; border-top: 1px solid #ddd; }
 .att { display: inline-block; margin-right: 10px; }
