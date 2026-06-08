@@ -11,11 +11,31 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 .count { color: #999; float: right; font-size: 11px; }
 .subject { font-weight: 600; font-size: 12.5px; }
 .meta { color: #777; font-size: 11px; }
+.preview { color: #888; font-size: 11px; margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; }
 #app.folders-collapsed { grid-template-columns: 360px 1fr; }
 #app.folders-collapsed #labels { display: none; }
 #searchbar { padding: 10px; border-bottom: 1px solid #ddd; position: sticky; top: 0;
   background: #fff; z-index: 2; }
 #q { width: 100%; padding: 6px 8px; }
+#filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: 11px; color: #555; }
+#filters input[type="date"], #filters input[type="search"], #filters select {
+  font-size: 11px; padding: 3px 4px; }
+#filters input#filter-sender { flex: 1; min-width: 80px; }
+#filters label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+#download-all { margin-top: 8px; font-size: 12px; padding: 4px 10px; cursor: pointer;
+  background: #eef; border: 1px solid #9bb8e8; border-radius: 4px; }
+#message-list.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px; padding: 8px; }
+#message-list.gallery li { padding: 0; border: 0; border-radius: 4px; overflow: hidden;
+  aspect-ratio: 1 / 1; }
+#message-list.gallery li.active { background: none; outline: 2px solid #9bb8e8; }
+img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer;
+  background: #f3f3f3; }
+.eml-link { display: inline-block; margin-top: 8px; margin-left: 8px; font-size: 12px;
+  padding: 3px 8px; background: #eef; border-radius: 4px; text-decoration: none; }
 #reader { display: flex; flex-direction: column; }
 #reader-header { padding: 12px; border-bottom: 1px solid #eee; }
 #reader-attachments { padding: 8px 12px; }
@@ -42,6 +62,8 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 /* Separator only BETWEEN populated segments — no stray dots around empty/last ones. */
 #footer span:not(:empty) ~ span:not(:empty)::before { content: "·"; margin: 0 10px; color: #bbb; }
 #footer .err { color: #b00020; }
+#integrity { color: #888; }
+#integrity.warn { color: #a06000; cursor: help; }
 .tab { font-size: 12px; line-height: 1.4; padding: 2px 10px; margin-left: 6px; cursor: pointer;
   background: #f3f3f3; border: 1px solid #ccc; border-radius: 4px; }
 .tab.active { background: #e7efff; border-color: #9bb8e8; font-weight: 600; }

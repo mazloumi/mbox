@@ -144,6 +144,100 @@ def test_list_files_by_category_search(tmp_path, sample_mbox):
     assert s.list_files_by_category(None, 50, 0, query=None) == []
 
 
+def test_preview_stored_and_returned(tmp_path):
+    s = _store(tmp_path)
+    mid = s.add_message(0, 100, "<id>", "Hi", "a@x.com", "b@x.com",
+                        "2024-01-01T10:00:00", "raw", preview="hello there world")
+    s.commit()
+    assert s.get_message_row(mid)["preview"] == "hello there world"
+    assert s.list_messages(None, 10, 0)[0]["preview"] == "hello there world"
+
+
+def _seed_filter_messages(s):
+    a = s.add_message(0, 10, "<a>", "Alpha", "alice@example.com", "b@x.com",
+                      "2024-01-01T10:00:00", "raw", preview="pa")
+    b = s.add_message(10, 10, "<b>", "Beta", "carol@example.com", "b@x.com",
+                      "2024-02-01T10:00:00", "raw", preview="pb")
+    c = s.add_message(20, 10, "<c>", "Gamma", "carol@example.com", "b@x.com",
+                      "2024-03-01T10:00:00", "raw", preview="pc")
+    s.add_attachment(c, 0, "f.pdf", "application/pdf", 1, "Documents")
+    s.commit()
+    return a, b, c
+
+
+def test_list_messages_from_q_filter(tmp_path):
+    s = _store(tmp_path)
+    a, b, c = _seed_filter_messages(s)
+    ids = {r["id"] for r in s.list_messages(None, 10, 0, from_q="carol")}
+    assert ids == {b, c}
+
+
+def test_list_messages_has_attachment_filter(tmp_path):
+    s = _store(tmp_path)
+    a, b, c = _seed_filter_messages(s)
+    ids = [r["id"] for r in s.list_messages(None, 10, 0, has_attachment=True)]
+    assert ids == [c]
+
+
+def test_list_messages_sort_asc(tmp_path):
+    s = _store(tmp_path)
+    a, b, c = _seed_filter_messages(s)
+    desc = [r["id"] for r in s.list_messages(None, 10, 0)]
+    asc = [r["id"] for r in s.list_messages(None, 10, 0, sort="date_asc")]
+    assert desc == [c, b, a]
+    assert asc == [a, b, c]
+
+
+def test_list_messages_date_range_filter(tmp_path):
+    s = _store(tmp_path)
+    a, b, c = _seed_filter_messages(s)
+    ids = {r["id"] for r in s.list_messages(None, 10, 0,
+                                            date_from="2024-02-01", date_to="2024-02-01")}
+    assert ids == {b}
+
+
+def test_search_with_filters(tmp_path):
+    s = _store(tmp_path)
+    a, b, c = _seed_filter_messages(s)
+    for mid, frm in ((a, "alice@example.com"), (b, "carol@example.com"), (c, "carol@example.com")):
+        s.add_fts(mid, "subj", frm, "b@x.com", "shared keyword body", "")
+    s.commit()
+    ids = {r["id"] for r in s.search("keyword", None, 10, 0, from_q="carol")}
+    assert ids == {b, c}
+    ids2 = {r["id"] for r in s.search("keyword", None, 10, 0, has_attachment=True)}
+    assert ids2 == {c}
+    asc = [r["id"] for r in s.search("keyword", None, 10, 0, sort="date_asc")]
+    assert asc == [a, b, c]
+
+
+def test_list_files_for_export_shape_and_cap(tmp_path, sample_mbox):
+    from mboxviewer.config import Settings
+    from mboxviewer.indexer import build_index
+    settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
+    s = Store(settings.index_path); s.create_schema(); build_index(settings, s)
+    rows = s.list_files_for_export("Documents", None, 100)
+    assert sorted(r["filename"] for r in rows) == ["invoice.pdf", "report.docx"]
+    r0 = rows[0]
+    assert set(r0.keys()) >= {"message_id", "idx", "filename", "mime", "size"}
+    capped = s.list_files_for_export("Documents", None, 1)
+    assert len(capped) == 1
+
+
+def test_integrity_reads_meta(tmp_path):
+    s = _store(tmp_path)
+    s.set_meta("indexed_count", "5")
+    s.set_meta("skipped_count", "2")
+    s.set_meta("skipped_sample", '[{"offset": 7, "reason": "boom"}]')
+    s.commit()
+    rep = s.integrity()
+    assert rep == {"indexed": 5, "skipped": 2, "sample": [{"offset": 7, "reason": "boom"}]}
+
+
+def test_integrity_defaults_when_unset(tmp_path):
+    s = _store(tmp_path)
+    assert s.integrity() == {"indexed": 0, "skipped": 0, "sample": []}
+
+
 def test_reads_work_from_another_thread(tmp_path):
     s = Store(str(tmp_path / "i.db"))
     s.create_schema()

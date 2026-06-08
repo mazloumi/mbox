@@ -27,15 +27,25 @@ def iter_message_spans(path):
             yield (msg_start, pos - msg_start)
 
 
-def read_message(path, offset, length):
+def read_message_bytes(path, offset, length):
+    """Return the raw RFC-822 bytes for a message span.
+
+    Strips the leading ``From …`` envelope line and un-escapes mboxrd
+    ``>From`` → ``From`` so callers receive a pure RFC-822 / .eml payload.
+    """
     with open(path, "rb") as f:
         f.seek(offset)
         raw = f.read(length)
     nl = raw.find(b"\n")
     if raw.startswith(b"From ") and nl != -1:
         raw = raw[nl + 1:]
-    raw = re.sub(rb"(?m)^>(>*From )", rb"\1", raw)
-    return email.message_from_bytes(raw, policy=policy.default)
+    return re.sub(rb"(?m)^>(>*From )", rb"\1", raw)
+
+
+def read_message(path, offset, length):
+    return email.message_from_bytes(
+        read_message_bytes(path, offset, length), policy=policy.default
+    )
 
 
 def parse_labels(header_value):

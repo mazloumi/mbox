@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import threading
@@ -6,7 +7,7 @@ from contextlib import contextmanager
 # Bump whenever a change requires a full re-index even on an unchanged mbox —
 # a new/changed column, extractor, or categorization rule. `index_is_current`
 # compares this against the value stamped into `meta` at build time.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -19,7 +20,8 @@ CREATE TABLE IF NOT EXISTS messages (
   from_addr TEXT,
   to_addr TEXT,
   date TEXT,
-  date_raw TEXT
+  date_raw TEXT,
+  preview TEXT
 );
 CREATE TABLE IF NOT EXISTS labels (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
 CREATE TABLE IF NOT EXISTS message_labels (
@@ -47,6 +49,32 @@ def _fts_query(q: str) -> str:
     return " ".join('"' + t.replace('"', '""') + '"*' for t in terms)
 
 
+# ORDER BY allowlist — the raw `sort` value is NEVER interpolated into SQL.
+_SORT_MAP = {"date_desc": "m.date DESC", "date_asc": "m.date ASC"}
+
+
+def _like_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _message_filters(date_from, date_to, from_q, has_attachment):
+    """Build a list of (clause, param) for the shared message filters (bound params)."""
+    where = []
+    params = []
+    if date_from:
+        where.append("substr(m.date,1,10) >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("substr(m.date,1,10) <= ?")
+        params.append(date_to)
+    if from_q:
+        where.append("m.from_addr LIKE ? ESCAPE '\\'")
+        params.append("%" + _like_escape(from_q) + "%")
+    if has_attachment:
+        where.append("EXISTS (SELECT 1 FROM attachments a WHERE a.message_id=m.id)")
+    return where, params
+
+
 class Store:
     def __init__(self, db_path: str):
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
@@ -72,6 +100,10 @@ class Store:
         self.conn.executescript(SCHEMA)
         try:
             self.conn.execute("ALTER TABLE attachments ADD COLUMN category TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already present (fresh CREATE or prior migration)
+        try:
+            self.conn.execute("ALTER TABLE messages ADD COLUMN preview TEXT")
         except sqlite3.OperationalError:
             pass  # column already present (fresh CREATE or prior migration)
         self.conn.commit()
@@ -114,11 +146,13 @@ class Store:
         row = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return row["value"] if row else None
 
-    def add_message(self, offset, length, message_id, subject, from_addr, to_addr, date, date_raw):
+    def add_message(self, offset, length, message_id, subject, from_addr, to_addr,
+                    date, date_raw, preview=None):
         cur = self.conn.execute(
-            "INSERT INTO messages(offset,length,message_id,subject,from_addr,to_addr,date,date_raw)"
-            " VALUES(?,?,?,?,?,?,?,?)",
-            (offset, length, message_id, subject, from_addr, to_addr, date, date_raw))
+            "INSERT INTO messages(offset,length,message_id,subject,from_addr,to_addr,"
+            "date,date_raw,preview)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (offset, length, message_id, subject, from_addr, to_addr, date, date_raw, preview))
         return cur.lastrowid
 
     def add_label(self, name):
@@ -147,30 +181,49 @@ class Store:
             "JOIN message_labels ml ON ml.label_id=l.id GROUP BY l.id ORDER BY l.name").fetchall()
         return [(r["name"], r["c"]) for r in rows]
 
-    def list_messages(self, label, limit, offset):
+    def list_messages(self, label, limit, offset, date_from=None, date_to=None,
+                      from_q=None, has_attachment=False, sort="date_desc"):
+        where, params = [], []
         if label:
-            return self.conn.execute(
-                "SELECT m.* FROM messages m JOIN message_labels ml ON ml.message_id=m.id "
-                "JOIN labels l ON l.id=ml.label_id WHERE l.name=? "
-                "ORDER BY m.date DESC LIMIT ? OFFSET ?", (label, limit, offset)).fetchall()
-        return self.conn.execute(
-            "SELECT * FROM messages ORDER BY date DESC LIMIT ? OFFSET ?",
-            (limit, offset)).fetchall()
+            sql = ("SELECT m.* FROM messages m JOIN message_labels ml ON ml.message_id=m.id "
+                   "JOIN labels l ON l.id=ml.label_id")
+            where.append("l.name=?")
+            params.append(label)
+        else:
+            sql = "SELECT m.* FROM messages m"
+        fwhere, fparams = _message_filters(date_from, date_to, from_q, has_attachment)
+        where.extend(fwhere)
+        params.extend(fparams)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY " + _SORT_MAP.get(sort, _SORT_MAP["date_desc"])
+        sql += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        return self.conn.execute(sql, params).fetchall()
 
-    def search(self, query, label, limit, offset):
+    def search(self, query, label, limit, offset, date_from=None, date_to=None,
+               from_q=None, has_attachment=False, sort="date_desc"):
         match = _fts_query(query)
         if not match:
             return []
+        where = ["messages_fts MATCH ?"]
+        params = [match]
         if label:
             sql = ("SELECT m.* FROM messages_fts f JOIN messages m ON m.id=f.rowid "
                    "JOIN message_labels ml ON ml.message_id=m.id "
-                   "JOIN labels l ON l.id=ml.label_id "
-                   "WHERE l.name=? AND messages_fts MATCH ? ORDER BY rank LIMIT ? OFFSET ?")
-            params = (label, match, limit, offset)
+                   "JOIN labels l ON l.id=ml.label_id")
+            where.insert(0, "l.name=?")
+            params.insert(0, label)
         else:
-            sql = ("SELECT m.* FROM messages_fts f JOIN messages m ON m.id=f.rowid "
-                   "WHERE messages_fts MATCH ? ORDER BY rank LIMIT ? OFFSET ?")
-            params = (match, limit, offset)
+            sql = "SELECT m.* FROM messages_fts f JOIN messages m ON m.id=f.rowid"
+        fwhere, fparams = _message_filters(date_from, date_to, from_q, has_attachment)
+        where.extend(fwhere)
+        params.extend(fparams)
+        sql += " WHERE " + " AND ".join(where)
+        # Default to relevance (rank); an explicit date sort uses the allowlist map.
+        order = _SORT_MAP[sort] if sort in _SORT_MAP and sort != "date_desc" else "rank"
+        sql += " ORDER BY " + order + " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         try:
             return self.conn.execute(sql, params).fetchall()
         except sqlite3.OperationalError as exc:
@@ -190,7 +243,9 @@ class Store:
         return self.conn.execute(
             "SELECT category, COUNT(*) AS c FROM attachments GROUP BY category").fetchall()
 
-    def list_files_by_category(self, category, limit, offset, query=None):
+    @staticmethod
+    def _files_filter(category, query):
+        """Build (where, params) for category + filename/FTS query filters."""
         where = []
         params = []
         if category:
@@ -198,7 +253,7 @@ class Store:
             params.append(category)
         q = (query or "").strip()
         if q:
-            like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            like = "%" + _like_escape(q) + "%"
             match = _fts_query(q)
             if match:
                 where.append("(a.filename LIKE ? ESCAPE '\\' OR a.message_id IN"
@@ -207,6 +262,10 @@ class Store:
             else:
                 where.append("a.filename LIKE ? ESCAPE '\\'")
                 params.append(like)
+        return where, params
+
+    def list_files_by_category(self, category, limit, offset, query=None):
+        where, params = self._files_filter(category, query)
         if not where:
             return []
         sql = ("SELECT a.message_id AS message_id, a.idx AS idx, a.filename AS filename,"
@@ -222,6 +281,37 @@ class Store:
             if "no such table" in message or "fts5" in message or "syntax error" in message:
                 return []
             raise
+
+    def list_files_for_export(self, category, query, limit):
+        """Like list_files_by_category but returns the columns the zip builder needs,
+        capped at `limit` rows (no offset)."""
+        where, params = self._files_filter(category, query)
+        if not where:
+            return []
+        sql = ("SELECT a.message_id AS message_id, a.idx AS idx, a.filename AS filename,"
+               " a.mime AS mime, a.size AS size"
+               " FROM attachments a JOIN messages m ON m.id = a.message_id"
+               f" WHERE {' AND '.join(where)}"
+               " ORDER BY a.filename LIMIT ?")
+        params.append(limit)
+        try:
+            return self.conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "no such table" in message or "fts5" in message or "syntax error" in message:
+                return []
+            raise
+
+    def integrity(self):
+        try:
+            sample = json.loads(self.get_meta("skipped_sample") or "[]")
+        except (ValueError, TypeError):
+            sample = []  # never let a malformed meta value 500 the status endpoint
+        return {
+            "indexed": int(self.get_meta("indexed_count") or 0),
+            "skipped": int(self.get_meta("skipped_count") or 0),
+            "sample": sample,
+        }
 
     def all_message_spans(self):
         return self.conn.execute("SELECT offset, length FROM messages ORDER BY offset").fetchall()

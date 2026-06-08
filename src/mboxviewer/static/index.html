@@ -20,6 +20,17 @@
     <section id="list">
       <div id="searchbar">
         <input id="q" type="search" placeholder="Search mail and attachments...">
+        <div id="filters">
+          <input id="filter-from" type="date" title="From date">
+          <input id="filter-to" type="date" title="To date">
+          <input id="filter-sender" type="search" placeholder="from…" title="Sender contains">
+          <label><input id="filter-hasatt" type="checkbox"> has attachment</label>
+          <select id="filter-sort">
+            <option value="date_desc">Newest first</option>
+            <option value="date_asc">Oldest first</option>
+          </select>
+        </div>
+        <button id="download-all" type="button" hidden>Download all</button>
       </div>
       <ul id="message-list"></ul>
     </section>
@@ -39,6 +50,7 @@
     <span id="mbox-name"></span>
     <span id="index-state"></span>
     <span id="archive-state"></span>
+    <span id="integrity"></span>
   </footer>
   <script src="/static/app.js"></script>
 </body>

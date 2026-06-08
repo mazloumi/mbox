@@ -18,6 +18,13 @@ const mboxNameEl = document.getElementById("mbox-name");
 const indexStateEl = document.getElementById("index-state");
 const archiveStateEl = document.getElementById("archive-state");
 const q = document.getElementById("q");
+const filterFrom = document.getElementById("filter-from");
+const filterTo = document.getElementById("filter-to");
+const filterSender = document.getElementById("filter-sender");
+const filterHasAtt = document.getElementById("filter-hasatt");
+const filterSort = document.getElementById("filter-sort");
+const downloadAllBtn = document.getElementById("download-all");
+const integrityEl = document.getElementById("integrity");
 
 const PAGE_SIZE = 50;
 let activeLabel = null;
@@ -36,6 +43,24 @@ async function getJSON(url) {
 function escapeHtml(s) {
   return (s || "").replace(/[&<>"]/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// Escape text, then wrap each active query term in <mark>. Escaping happens
+// BEFORE wrapping so email-controlled text can never inject markup.
+function highlight(text) {
+  const t = text || "";
+  const terms = (currentQuery || "").split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return escapeHtml(t);
+  // Match on the RAW text (so HTML entities aren't split), escaping each segment
+  // and each match individually — only the trusted <mark> tags are unescaped.
+  const re = new RegExp(terms.map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi");
+  let out = "", last = 0, m;
+  while ((m = re.exec(t)) !== null) {
+    out += escapeHtml(t.slice(last, m.index)) + "<mark>" + escapeHtml(m[0]) + "</mark>";
+    last = m.index + m[0].length;
+    if (m.index === re.lastIndex) re.lastIndex++;  // avoid an infinite loop on empty match
+  }
+  return out + escapeHtml(t.slice(last));
 }
 
 function humanSize(bytes) {
@@ -93,20 +118,35 @@ function pageUrl(page) {
     return `/api/files?${params.toString()}`;
   }
   if (activeLabel) params.set("label", activeLabel);
+  if (filterFrom.value) params.set("date_from", filterFrom.value);
+  if (filterTo.value) params.set("date_to", filterTo.value);
+  if (filterSender.value.trim()) params.set("from_q", filterSender.value.trim());
+  if (filterHasAtt.checked) params.set("has_attachment", "1");
+  if (filterSort.value) params.set("sort", filterSort.value);
   if (currentQuery) { params.set("q", currentQuery); return `/api/search?${params.toString()}`; }
   return `/api/messages?${params.toString()}`;
 }
 
+function isGallery() {
+  return browseMode === "files" && activeCategory === "Images";
+}
+
 function appendRows(items) {
+  messageList.classList.toggle("gallery", isGallery());
   for (const it of items) {
     const li = document.createElement("li");
     if (browseMode === "files") {
-      li.innerHTML = `<div class="subject">${escapeHtml(it.filename || "(no name)")}</div>
-        <div class="meta">${escapeHtml(it.subject || "")} — ${humanSize(it.size)}</div>`;
+      if (isGallery()) {
+        li.innerHTML = `<img class="thumb" loading="lazy" src="/api/messages/${it.message_id}/attachments/${it.idx}?inline=1" title="${escapeHtml(it.filename || "")}">`;
+      } else {
+        li.innerHTML = `<div class="subject">${escapeHtml(it.filename || "(no name)")}</div>
+          <div class="meta">${escapeHtml(it.subject || "")} — ${humanSize(it.size)}</div>`;
+      }
       li.onclick = () => { setActive(messageList, li); openFile(it.message_id, it.idx, it.filename, it.mime, it.size); };
     } else {
-      li.innerHTML = `<div class="subject">${escapeHtml(it.subject || "(no subject)")}</div>
-        <div class="meta">${escapeHtml(it.from || "")} — ${escapeHtml((it.date || "").slice(0, 10))}</div>`;
+      li.innerHTML = `<div class="subject">${highlight(it.subject || "(no subject)")}</div>
+        <div class="meta">${escapeHtml(it.from || "")} — ${escapeHtml((it.date || "").slice(0, 10))}</div>
+        <div class="preview">${highlight(it.preview || "")}</div>`;
       li.onclick = () => { setActive(messageList, li); openMessage(it.id); };
     }
     messageList.appendChild(li);
@@ -156,6 +196,8 @@ async function reload() {
   loadingMore = false;
   noMorePages = false;
   messageList.innerHTML = "";              // detaches the sentinel; re-added by appendRows
+  messageList.classList.toggle("gallery", isGallery());
+  updateDownloadAll();
   if (browseMode === "files" && !activeCategory && !currentQuery) return;  // need a category or a query
   try {
     const data = await getJSON(pageUrl(1));
@@ -377,9 +419,10 @@ async function openMessage(id, allowRemote = false) {
   try {
     const m = await getJSON(`/api/messages/${id}?allow_remote=${allowRemote}`);
     const remoteBtn = allowRemote ? "" : `<button id="load-remote" type="button">Load remote images</button>`;
+    const emlLink = `<a class="eml-link" href="/api/messages/${id}/raw" download>Download .eml</a>`;
     readerHeader.innerHTML = `<div class="subject">${escapeHtml(m.subject || "(no subject)")}</div>
       <div class="meta">From: ${escapeHtml(m.from || "")}<br>To: ${escapeHtml(m.to || "")}<br>${escapeHtml(m.date || "")}</div>
-      ${remoteBtn}`;
+      ${remoteBtn}${emlLink}`;
     readerAtt.innerHTML = (m.attachments || []).map(a => {
       const dl = `<a href="/api/messages/${id}/attachments/${a.idx}" download>${escapeHtml(a.filename)} (${escapeHtml(String(a.size))}b)</a>`;
       const view = a.mime === "application/pdf"
@@ -439,6 +482,43 @@ q.addEventListener("input", () => {
   searchTimer = setTimeout(() => { currentQuery = q.value.trim(); reload(); }, 250);
 });
 
+// --- Search filters: re-run the list whenever any filter control changes ---
+for (const el of [filterFrom, filterTo, filterHasAtt, filterSort]) {
+  el.addEventListener("change", () => reload());
+}
+// The sender filter gets live (debounced) feedback like the main search box.
+let senderTimer;
+filterSender.addEventListener("input", () => {
+  clearTimeout(senderTimer);
+  senderTimer = setTimeout(() => reload(), 250);
+});
+
+// --- Bulk export: show "Download all" in Files mode when scoped ---
+function updateDownloadAll() {
+  const show = browseMode === "files" && (activeCategory || currentQuery);
+  downloadAllBtn.hidden = !show;
+}
+downloadAllBtn.addEventListener("click", () => {
+  window.location = "/api/files/export?" +
+    new URLSearchParams({ category: activeCategory || "", q: currentQuery || "" }).toString();
+});
+
+// --- Integrity footer: indexed/skipped counts (best-effort) ---
+async function loadIntegrity() {
+  try {
+    const d = await getJSON("/api/integrity");
+    const n = (x) => Number(x).toLocaleString();
+    integrityEl.textContent = `Index: ${n(d.indexed)} indexed · ${n(d.skipped)} skipped`;
+    if (d.skipped > 0) {
+      integrityEl.classList.add("warn");
+      const sample = (d.sample || []).slice(0, 5)
+        .map(s => typeof s === "string" ? s : (s.reason || JSON.stringify(s)));
+      if (sample.length) integrityEl.title = sample.join("\n");
+    }
+  } catch (e) { /* ignore — footer stays empty */ }
+}
+loadIntegrity();
+
 // --- Folders/Files mode tabs + collapse (persisted) ---
 function toggleCollapse() {
   const collapsed = !appEl.classList.contains("folders-collapsed");
@@ -460,6 +540,7 @@ function setMode(mode) {
   readerAtt.innerHTML = "";
   showOnlyPane(mode === "files" ? null : readerBody);
   readerBody.srcdoc = "";
+  updateDownloadAll();
   refreshLeft();
   reload();
 }
@@ -474,16 +555,24 @@ try {
   if (localStorage.getItem("foldersCollapsed") === "1") appEl.classList.add("folders-collapsed");
 } catch (e) { /* ignore */ }
 
-// --- Arrow-key navigation between emails in the list ---
+// --- Keyboard shortcuts + arrow-key navigation between emails ---
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
   const tag = (document.activeElement && document.activeElement.tagName) || "";
-  if (tag === "INPUT" || tag === "TEXTAREA") return;  // don't hijack typing in search
+  const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  // Escape blurs the search box even while typing in it.
+  if (e.key === "Escape" && document.activeElement === q) { q.blur(); return; }
+  if (typing) return;  // don't hijack typing in inputs
+  // "/" focuses the search box.
+  if (e.key === "/") { e.preventDefault(); q.focus(); return; }
+  // j/k mirror ArrowDown/ArrowUp; everything else (besides arrows) is ignored.
+  const down = e.key === "ArrowDown" || e.key === "j";
+  const up = e.key === "ArrowUp" || e.key === "k";
+  if (!down && !up) return;
   const items = Array.from(messageList.querySelectorAll("li")).filter(li => li.id !== "load-more");
   if (items.length === 0) return;
   const current = messageList.querySelector("li.active");
   let idx = current ? items.indexOf(current) : -1;
-  idx = e.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+  idx = down ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
   const target = items[idx];
   if (target) {
     e.preventDefault();

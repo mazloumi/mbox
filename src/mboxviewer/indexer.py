@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from email.utils import parsedate_to_datetime
@@ -39,14 +40,18 @@ def build_index(settings, store, progress=None):
     """
     store.clear()
     count = 0
+    skipped = 0
+    skipped_sample = []
     for offset, length in iter_message_spans(settings.mbox_path):
         try:
             with store.savepoint():
                 msg = read_message(settings.mbox_path, offset, length)
                 date_raw = msg["date"]
+                body_text = _body_text(msg)  # compute once: used for preview + FTS body
+                preview = " ".join(body_text.split())[:300]
                 mid = store.add_message(
                     offset, length, msg["message-id"], msg["subject"],
-                    msg["from"], msg["to"], _iso_date(date_raw), date_raw)
+                    msg["from"], msg["to"], _iso_date(date_raw), date_raw, preview)
                 for name in parse_labels(msg["x-gmail-labels"]):
                     store.link_label(mid, store.add_label(name))
                 att_texts = []
@@ -56,9 +61,12 @@ def build_index(settings, store, progress=None):
                     att_texts.append(extract_text(filename, mime, payload))
                 store.add_fts(
                     mid, msg["subject"] or "", msg["from"] or "", msg["to"] or "",
-                    _body_text(msg), "\n".join(att_texts))
+                    body_text, "\n".join(att_texts))
             count += 1
         except Exception as exc:
+            skipped += 1
+            if len(skipped_sample) < 25:
+                skipped_sample.append({"offset": offset, "reason": str(exc)[:200]})
             sys.stderr.write(f"skipping message at offset {offset}: {exc}\n")
             continue
         if count % COMMIT_EVERY == 0:
@@ -68,6 +76,9 @@ def build_index(settings, store, progress=None):
     store.set_meta("source_size", str(os.path.getsize(settings.mbox_path)))
     store.set_meta("source_mtime", str(int(os.path.getmtime(settings.mbox_path))))
     store.set_meta("schema_version", str(SCHEMA_VERSION))
+    store.set_meta("indexed_count", str(count))
+    store.set_meta("skipped_count", str(skipped))
+    store.set_meta("skipped_sample", json.dumps(skipped_sample))
     store.commit()
     return count
 
