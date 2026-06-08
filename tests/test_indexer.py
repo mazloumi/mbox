@@ -56,6 +56,27 @@ def test_index_is_current_detects_staleness(tmp_path, sample_mbox):
     assert index_is_current(settings, store) is False
 
 
+def test_build_index_stamps_schema_version(tmp_path, sample_mbox):
+    from mboxviewer.store import SCHEMA_VERSION
+    settings, store, _ = _build(tmp_path, sample_mbox)
+    assert store.get_meta("schema_version") == str(SCHEMA_VERSION)
+    assert index_is_current(settings, store) is True
+
+
+def test_index_is_current_false_on_schema_version_change(tmp_path, sample_mbox):
+    settings, store, _ = _build(tmp_path, sample_mbox)
+    assert index_is_current(settings, store) is True
+    # mbox unchanged (size+mtime match) but the index was built by an older format
+    store.set_meta("schema_version", "1"); store.commit()
+    assert index_is_current(settings, store) is False
+
+
+def test_index_is_current_false_when_schema_version_missing(tmp_path, sample_mbox):
+    settings, store, _ = _build(tmp_path, sample_mbox)
+    store.conn.execute("DELETE FROM meta WHERE key='schema_version'"); store.commit()
+    assert index_is_current(settings, store) is False
+
+
 def test_rebuild_does_not_duplicate(tmp_path, sample_mbox):
     settings = Settings(mbox_path=sample_mbox, index_path=str(tmp_path / "i.db"))
     store = Store(settings.index_path)

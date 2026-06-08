@@ -7,6 +7,7 @@ from .reader import (
 )
 from .extract import extract_text, html_to_text
 from . import filetypes
+from .store import SCHEMA_VERSION
 
 COMMIT_EVERY = 2000
 PROGRESS_EVERY = 500
@@ -66,6 +67,7 @@ def build_index(settings, store, progress=None):
             progress(count, offset + length)
     store.set_meta("source_size", str(os.path.getsize(settings.mbox_path)))
     store.set_meta("source_mtime", str(int(os.path.getmtime(settings.mbox_path))))
+    store.set_meta("schema_version", str(SCHEMA_VERSION))
     store.commit()
     return count
 
@@ -78,6 +80,8 @@ def index_is_current(settings, store):
         mtime = store.get_meta("source_mtime")
         if size is None or mtime is None:
             return False
+        if store.get_meta("schema_version") != str(SCHEMA_VERSION):
+            return False  # index built by a different format -> force a re-index
         return (size == str(os.path.getsize(settings.mbox_path))
                 and mtime == str(int(os.path.getmtime(settings.mbox_path))))
     except Exception:  # noqa: BLE001 - never raise; a polled status route depends on this
