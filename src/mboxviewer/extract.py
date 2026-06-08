@@ -260,7 +260,7 @@ def _run_text_tool(toolname: str, suffix: str, data: bytes) -> str:
     path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-            path = f.name
+            path = f.name  # capture first so `finally` can always unlink, even if write fails
             f.write(data)
         proc = subprocess.run([exe, path], capture_output=True, timeout=30)
         return proc.stdout.decode("utf-8", "replace") if proc.returncode == 0 else ""
