@@ -597,20 +597,14 @@ function setMode(mode) {
 }
 
 function exitChat() {
-  document.getElementById("chat").hidden = true;
-  document.getElementById("labels").hidden = false;
-  document.getElementById("list").hidden = false;
-  document.getElementById("reader").hidden = false;
+  appEl.classList.remove("chat-mode");
   document.getElementById("tab-ask").classList.remove("active");
 }
 
 document.getElementById("tab-ask").addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
   document.getElementById("tab-ask").classList.add("active");
-  document.getElementById("labels").hidden = true;
-  document.getElementById("list").hidden = true;
-  document.getElementById("reader").hidden = true;
-  document.getElementById("chat").hidden = false;
+  appEl.classList.add("chat-mode");
   refreshSemanticState();
   document.getElementById("chat-input").focus();
 });
