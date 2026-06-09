@@ -259,6 +259,15 @@ class Store:
                 "SELECT id, text FROM chunks ORDER BY id LIMIT ?", (limit,)).fetchall()
         return [(r["id"], r["text"]) for r in rows]
 
+    def count_chunks_without_vectors(self):
+        """COUNT of chunks lacking a vector (no text materialized — for progress)."""
+        try:
+            return self.conn.execute(
+                "SELECT COUNT(*) FROM chunks c LEFT JOIN vec_chunks v "
+                "ON v.chunk_id = c.id WHERE v.chunk_id IS NULL").fetchone()[0]
+        except _OPERATIONAL_ERRORS:
+            return self.count_chunks()  # vec table missing -> everything is pending
+
     def add_vector(self, chunk_id, embedding):
         import sqlite_vec
         self.conn.execute(

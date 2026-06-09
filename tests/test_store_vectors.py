@@ -69,3 +69,12 @@ def test_request_path_queries_work_under_vector_driver(vstore):
     # the enable_vectors=True driver (pysqlite3 on dev Python) without raising.
     assert any(r["id"] == mid for r in vstore.search("hello", None, 10, 0))
     assert vstore.list_files_by_category(None, 10, 0, query="nope") == []
+
+
+def test_count_chunks_without_vectors(vstore):
+    mid = _msg(vstore)
+    a = vstore.add_chunk(mid, "body", 0, None, "a")
+    b = vstore.add_chunk(mid, "body", 1, None, "b")
+    assert vstore.count_chunks_without_vectors() == 2
+    vstore.add_vector(a, [1.0, 0.0, 0.0])
+    assert vstore.count_chunks_without_vectors() == 1
