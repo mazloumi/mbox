@@ -1,5 +1,3 @@
-import importlib
-
 from mboxviewer.config import Settings, load_settings
 
 
@@ -16,6 +14,8 @@ def test_defaults_off():
     assert s.anthropic_api_key is None
     assert s.gen_model == "claude-sonnet-4-6"
     assert s.embed_backend == "local"
+    assert s.embed_model == "BAAI/bge-small-en-v1.5"
+    assert s.ollama_url == "http://host.docker.internal:11434"
     assert s.semantic_active() is False
     assert s.assistant_active() is False
 
@@ -56,9 +56,7 @@ def test_load_settings_reads_env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-abc")
     monkeypatch.setenv("ASSISTANT_MODEL", "claude-opus-4-8")
     monkeypatch.setenv("EMBED_BACKEND", "ollama")
-    import mboxviewer.config as cfg
-    importlib.reload(cfg)
-    s = cfg.load_settings()
+    s = load_settings()
     # Base fields.
     assert s.mbox_path == "/data/x.mbox"
     assert s.index_path == "/index/i.db"
