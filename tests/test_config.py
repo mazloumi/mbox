@@ -1,6 +1,6 @@
 import importlib
 
-from mboxviewer.config import Settings
+from mboxviewer.config import Settings, load_settings
 
 
 def _settings(**kw):
@@ -38,7 +38,19 @@ def test_semantic_standalone():
     assert s.assistant_active() is False
 
 
+def test_archive_dir_default_and_env(monkeypatch):
+    monkeypatch.delenv("ARCHIVE_DIR", raising=False)
+    assert load_settings().archive_dir == "/archive"
+    monkeypatch.setenv("ARCHIVE_DIR", "/tmp/arch")
+    assert load_settings().archive_dir == "/tmp/arch"
+
+
 def test_load_settings_reads_env(monkeypatch):
+    # Base env wiring.
+    monkeypatch.setenv("MBOX_PATH", "/data/x.mbox")
+    monkeypatch.setenv("INDEX_PATH", "/index/i.db")
+    monkeypatch.setenv("PORT", "9000")
+    # Assistant / semantic-search env wiring.
     monkeypatch.setenv("SEMANTIC_SEARCH", "1")
     monkeypatch.setenv("ASSISTANT_ENABLED", "yes")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-abc")
@@ -47,6 +59,12 @@ def test_load_settings_reads_env(monkeypatch):
     import mboxviewer.config as cfg
     importlib.reload(cfg)
     s = cfg.load_settings()
+    # Base fields.
+    assert s.mbox_path == "/data/x.mbox"
+    assert s.index_path == "/index/i.db"
+    assert s.port == 9000
+    assert s.host == "0.0.0.0"
+    # Assistant / semantic-search fields.
     assert s.semantic_search_enabled is True
     assert s.assistant_enabled is True
     assert s.gen_model == "claude-opus-4-8"
