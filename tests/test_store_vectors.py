@@ -55,3 +55,12 @@ def test_search_fts_messages(vstore):
     vstore.add_fts(mid, "Subj", "a@x.com", "b@x.com", "the quick brown fox", "")
     assert vstore.search_fts_messages("quick", 5) == [mid]
     assert vstore.search_fts_messages("zzz", 5) == []
+
+
+def test_request_path_queries_work_under_vector_driver(vstore):
+    mid = _msg(vstore)
+    vstore.add_fts(mid, "Subj", "a@x.com", "b@x.com", "hello world", "")
+    # search() and list_files_by_category() must run (and gracefully handle) under
+    # the enable_vectors=True driver (pysqlite3 on dev Python) without raising.
+    assert any(r["id"] == mid for r in vstore.search("hello", None, 10, 0))
+    assert vstore.list_files_by_category(None, 10, 0, query="nope") == []

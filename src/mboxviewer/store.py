@@ -130,6 +130,7 @@ class Store:
                             "Install pysqlite3 (`pip install pysqlite3`) or use Python "
                             "compiled with SQLITE_ENABLE_LOAD_EXTENSION."
                         )
+                    c.close()  # release the stdlib handle before swapping drivers
                     c = pysqlite3.connect(self._db_path, check_same_thread=False)
                     c.row_factory = pysqlite3.Row
                     c.execute("PRAGMA journal_mode=WAL")
@@ -365,7 +366,7 @@ class Store:
         params.extend([limit, offset])
         try:
             return self.conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
+        except _OPERATIONAL_ERRORS as exc:
             message = str(exc).lower()
             if "no such table" in message or "fts5" in message or "syntax error" in message:
                 return []
@@ -415,7 +416,7 @@ class Store:
         params.extend([limit, offset])
         try:
             return self.conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
+        except _OPERATIONAL_ERRORS as exc:
             message = str(exc).lower()
             if "no such table" in message or "fts5" in message or "syntax error" in message:
                 return []
@@ -435,7 +436,7 @@ class Store:
         params.append(limit)
         try:
             return self.conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
+        except _OPERATIONAL_ERRORS as exc:
             message = str(exc).lower()
             if "no such table" in message or "fts5" in message or "syntax error" in message:
                 return []
