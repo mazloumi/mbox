@@ -118,6 +118,8 @@ def create_app(settings, index_in_background=True):
     _client_box = {}
 
     def anthropic_client():
+        # Lock-free memoization: deliberate for this single-user app — a concurrent
+        # first-call race just constructs a throwaway client (no network), harmless.
         if "c" not in _client_box:
             import anthropic  # lazy
             _client_box["c"] = anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -236,17 +238,23 @@ def create_app(settings, index_in_background=True):
         if not settings.assistant_active():
             raise HTTPException(404, "assistant not enabled")
         messages = payload.get("messages") or []
-        if not messages or messages[-1].get("role") != "user":
-            raise HTTPException(400, "last message must be a user turn")
-        question = messages[-1]["content"]
+        last = messages[-1] if messages else None
+        if (not isinstance(last, dict) or last.get("role") != "user"
+                or not isinstance(last.get("content"), str) or not last["content"].strip()):
+            raise HTTPException(400, "last message must be a user turn with text content")
+        question = last["content"]
         history = messages[:-1]
 
         def _ndjson():
             snap = embed_status.snapshot()
             if not snap["ready"]:
-                total = snap["vectors_total"] or 1
-                pct = round(snap["vectors_done"] / total * 100, 1)
-                yield json.dumps({"type": "building", "percent": pct}) + "\n"
+                if snap["state"] == "error":
+                    yield json.dumps({"type": "error",
+                                      "error": "knowledge base build failed; check server logs"}) + "\n"
+                else:
+                    total = snap["vectors_total"] or 1
+                    pct = round(snap["vectors_done"] / total * 100, 1)
+                    yield json.dumps({"type": "building", "percent": pct}) + "\n"
                 yield json.dumps({"type": "done"}) + "\n"
                 return
             snippets = retrieve_mod.retrieve_context(store, embedder, question)

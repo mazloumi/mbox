@@ -74,3 +74,15 @@ def test_chat_streams_with_fake_client(tmp_path, sample_mbox, monkeypatch):
     assert "token" in types
     assert types[-1] == "done"
     assert "".join(d["text"] for d in lines if d["type"] == "token") == "Answer [#1]"
+
+
+def test_chat_400_on_malformed_last_turn(tmp_path, sample_mbox, monkeypatch):
+    from mboxviewer import embed
+    class FakeEmbedder:
+        model_name = "fake"; dim = 4
+        def embed_texts(self, texts): return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+    monkeypatch.setattr(embed, "make_embedder", lambda settings: FakeEmbedder())
+    app = _app(tmp_path, sample_mbox, assistant_enabled=True, anthropic_api_key="sk-ant-test")
+    c = TestClient(app)
+    assert c.post("/api/assistant/chat", json={"messages": [{"role": "user"}]}).status_code == 400
+    assert c.post("/api/assistant/chat", json={"messages": []}).status_code == 400
