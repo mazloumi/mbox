@@ -86,3 +86,8 @@ def test_chat_400_on_malformed_last_turn(tmp_path, sample_mbox, monkeypatch):
     c = TestClient(app)
     assert c.post("/api/assistant/chat", json={"messages": [{"role": "user"}]}).status_code == 400
     assert c.post("/api/assistant/chat", json={"messages": []}).status_code == 400
+    # non-list messages value must return 400 (not 500 TypeError)
+    assert c.post("/api/assistant/chat", json={"messages": 123}).status_code == 400
+    # whitespace-only content must return 400
+    assert c.post("/api/assistant/chat",
+                  json={"messages": [{"role": "user", "content": "  "}]}).status_code == 400

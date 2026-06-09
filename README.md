@@ -200,7 +200,9 @@ is an instant no-op (it records the mbox size/mtime and skips re-downloading).
 ## AI features (optional)
 
 Both features are **off by default**. With both off the app behaves exactly as before —
-local, keyword search only, no external network calls.
+local, keyword search only, no external network calls. The embedding and Claude client
+dependencies are included in the Docker image but imported lazily, so they consume no
+memory when the tiers are off and toggling a tier on needs no container rebuild.
 
 ### Tier 1 — Semantic search (fully local, no API key)
 

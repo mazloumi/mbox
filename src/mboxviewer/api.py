@@ -237,8 +237,10 @@ def create_app(settings, index_in_background=True):
     def assistant_chat(payload: dict):
         if not settings.assistant_active():
             raise HTTPException(404, "assistant not enabled")
-        messages = payload.get("messages") or []
-        last = messages[-1] if messages else None
+        messages = payload.get("messages")
+        if not isinstance(messages, list) or not messages:
+            raise HTTPException(400, "messages must be a non-empty list")
+        last = messages[-1]
         if (not isinstance(last, dict) or last.get("role") != "user"
                 or not isinstance(last.get("content"), str) or not last["content"].strip()):
             raise HTTPException(400, "last message must be a user turn with text content")

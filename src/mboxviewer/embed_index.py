@@ -46,7 +46,11 @@ def build_chunks(settings, store, status):
 
 
 def build_embeddings(settings, store, embedder, status):
-    """Vectorize chunks lacking a vector. Resumable; records embed model/dim/backend."""
+    """Vectorize chunks lacking a vector. Resumable; re-embeds if the model changed."""
+    current = (embedder.model_name, embedder.dim, settings.embed_backend)
+    stored = store.embed_meta_get()
+    if stored is not None and stored != current:
+        store.clear_vectors()   # model/backend/dim changed -> drop stale vectors, re-embed
     store.ensure_vector_schema(embedder.dim)
     total = store.count_chunks()
     pending = store.count_chunks_without_vectors()

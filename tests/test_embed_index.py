@@ -76,3 +76,23 @@ def test_embed_pass_resumes_after_partial(tmp_path, sample_mbox):
     assert len(store.chunks_without_vectors(100)) == store.count_chunks()
     embed_index.build_embeddings(settings, store, emb, EmbedStatus())
     assert store.chunks_without_vectors(100) == []
+
+
+def test_embed_rebuilds_on_model_change(tmp_path, sample_mbox):
+    settings, store = _indexed_store(tmp_path, sample_mbox)
+    embed_index.build_chunks(settings, store, EmbedStatus())
+    embed_index.build_embeddings(settings, store, FakeEmbedder(), EmbedStatus())
+    assert store.embed_meta_get() == ("fake", 4, "local")
+    assert store.chunks_without_vectors(100) == []
+
+    class FakeEmbedder6:
+        model_name = "fake6"
+        dim = 6
+        def embed_texts(self, texts):
+            return [[1.0] * 6 for _ in texts]
+
+    # Switching to a different model/dim must rebuild the vectors at the new dim.
+    embed_index.build_embeddings(settings, store, FakeEmbedder6(), EmbedStatus())
+    assert store.embed_meta_get() == ("fake6", 6, "local")
+    assert store.chunks_without_vectors(100) == []
+    assert isinstance(store.knn_search([1.0] * 6, 1), list)  # works at the new dim
