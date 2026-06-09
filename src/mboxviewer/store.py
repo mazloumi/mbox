@@ -268,14 +268,17 @@ class Store:
     def knn_search(self, embedding, k):
         """Return [(chunk_id, message_id, distance)] nearest to `embedding`."""
         import sqlite_vec
-        rows = self.conn.execute(
-            "WITH knn AS ("
-            "  SELECT chunk_id, distance FROM vec_chunks "
-            "  WHERE embedding MATCH ? ORDER BY distance LIMIT ?) "
-            "SELECT knn.chunk_id AS chunk_id, c.message_id AS message_id, "
-            "       knn.distance AS distance "
-            "FROM knn JOIN chunks c ON c.id = knn.chunk_id ORDER BY knn.distance",
-            (sqlite_vec.serialize_float32(list(embedding)), k)).fetchall()
+        try:
+            rows = self.conn.execute(
+                "WITH knn AS ("
+                "  SELECT chunk_id, distance FROM vec_chunks "
+                "  WHERE embedding MATCH ? ORDER BY distance LIMIT ?) "
+                "SELECT knn.chunk_id AS chunk_id, c.message_id AS message_id, "
+                "       knn.distance AS distance "
+                "FROM knn JOIN chunks c ON c.id = knn.chunk_id ORDER BY knn.distance",
+                (sqlite_vec.serialize_float32(list(embedding)), k)).fetchall()
+        except _OPERATIONAL_ERRORS:
+            return []
         return [(r["chunk_id"], r["message_id"], r["distance"]) for r in rows]
 
     def search_fts_messages(self, query, k):

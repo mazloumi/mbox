@@ -64,5 +64,20 @@ def test_budget_caps_snippets(seeded):
     emb = FakeEmbedder({"q": [1.0, 1.0, 1.0]})
     snips = retrieve.retrieve_context(store, emb, "apple banana cherry", budget_chars=50)
     total = sum(len(s.text) for s in snips)
-    assert total <= 50 + 100   # budget honored (allow one snippet's slack)
+    assert total <= 50 + max(len(s.text) for s in snips)  # cap + one snippet's slack
     assert len(snips) >= 1
+
+
+def test_retrieve_context_fts_only_uses_preview_fallback(tmp_path):
+    s = Store(str(tmp_path / "i.db"), enable_vectors=True)
+    s.create_schema()
+    s.ensure_vector_schema(3)
+    # Message seeded into FTS only (no chunk, no vector) -> chunk_id is None path.
+    mid = s.add_message(0, 1, "<m>", "Durian thread", "a@x.com", "b@x.com",
+                        "2024-01-01", "raw", preview="some preview text about durian")
+    s.add_fts(mid, "Durian thread", "a@x.com", "b@x.com", "spiky durian fruit", "")
+    emb = FakeEmbedder({})  # query embeds to zero vector; no KNN hits
+    snips = retrieve.retrieve_context(s, emb, "durian", budget_chars=10000)
+    assert snips[0].message_id == mid
+    assert snips[0].text == "some preview text about durian"
+    assert snips[0].subject == "Durian thread"

@@ -60,6 +60,7 @@ def retrieve_context(store, embedder, query, budget_chars=12000, max_snippets=20
     for mid, chunk_id in fused:
         if len(snippets) >= max_snippets:
             break
+        row = None
         text = store.get_chunk_text(chunk_id) if chunk_id is not None else None
         if not text:
             row = store.get_message_row(mid)
@@ -68,7 +69,8 @@ def retrieve_context(store, embedder, query, budget_chars=12000, max_snippets=20
             continue
         if used and used + len(text) > budget_chars:
             break
-        row = store.get_message_row(mid)
+        if row is None:
+            row = store.get_message_row(mid)
         snippets.append(Snippet(
             message_id=mid,
             subject=row["subject"] if row else None,

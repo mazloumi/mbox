@@ -45,6 +45,11 @@ def test_clear_vectors_keeps_chunk_text(vstore):
     assert vstore.chunks_without_vectors(10) == [(c, "keep me")]
 
 
+def test_knn_search_graceful_when_vectors_dropped(vstore):
+    vstore.clear_vectors()  # drops vec_chunks
+    assert vstore.knn_search([0.0, 0.0, 0.0], 5) == []
+
+
 def test_embed_meta_roundtrip(vstore):
     vstore.embed_meta_set("BAAI/bge-small-en-v1.5", 384, "local")
     assert vstore.embed_meta_get() == ("BAAI/bge-small-en-v1.5", 384, "local")
