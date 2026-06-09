@@ -15,6 +15,13 @@ services:
       - INDEX_PATH=/index/index.db
       - ARCHIVE_DIR=/archive
       - MBOX_NAME=${MBOX_NAME:-}
+      - SEMANTIC_SEARCH=${SEMANTIC_SEARCH:-}
+      - ASSISTANT_ENABLED=${ASSISTANT_ENABLED:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ASSISTANT_MODEL=${ASSISTANT_MODEL:-claude-sonnet-4-6}
+      - EMBED_BACKEND=${EMBED_BACKEND:-local}
+      - EMBED_MODEL=${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
 
 volumes:
   mbox-index:
