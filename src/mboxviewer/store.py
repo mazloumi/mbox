@@ -4,6 +4,15 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 
+# Operational errors come from stdlib sqlite3, or from pysqlite3 (separate exception
+# hierarchy) when it's the active driver on extension-less dev Python. Catch both.
+_OPERATIONAL_ERRORS = (sqlite3.OperationalError,)
+try:
+    import pysqlite3 as _pysqlite3
+    _OPERATIONAL_ERRORS = (sqlite3.OperationalError, _pysqlite3.OperationalError)
+except ImportError:
+    pass
+
 # Bump whenever a change requires a full re-index even on an unchanged mbox —
 # a new/changed column, extractor, or categorization rule. `index_is_current`
 # compares this against the value stamped into `meta` at build time.
@@ -102,6 +111,9 @@ class Store:
             c.execute("PRAGMA busy_timeout=5000")
             if self._enable_vectors:
                 import sqlite_vec  # lazy: only when the semantic tier is active
+                # Production (Docker python:3.12-slim) supports loadable extensions on
+                # stdlib sqlite3; macOS dev Python does not, so fall back to pysqlite3
+                # (declared in requirements-dev.txt).
                 try:
                     c.enable_load_extension(True)
                     sqlite_vec.load(c)
@@ -135,11 +147,11 @@ class Store:
         self.conn.executescript(SCHEMA)
         try:
             self.conn.execute("ALTER TABLE attachments ADD COLUMN category TEXT")
-        except Exception:
+        except _OPERATIONAL_ERRORS:
             pass  # column already present (fresh CREATE or prior migration)
         try:
             self.conn.execute("ALTER TABLE messages ADD COLUMN preview TEXT")
-        except Exception:
+        except _OPERATIONAL_ERRORS:
             pass  # column already present (fresh CREATE or prior migration)
         self.conn.commit()
 
@@ -239,7 +251,7 @@ class Store:
                 "SELECT c.id AS id, c.text AS text FROM chunks c "
                 "LEFT JOIN vec_chunks v ON v.chunk_id = c.id "
                 "WHERE v.chunk_id IS NULL ORDER BY c.id LIMIT ?", (limit,)).fetchall()
-        except Exception:
+        except _OPERATIONAL_ERRORS:
             # vec_chunks table does not exist (e.g. after clear_vectors()); treat
             # every chunk as un-embedded.
             rows = self.conn.execute(
@@ -274,7 +286,7 @@ class Store:
             rows = self.conn.execute(
                 "SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? "
                 "ORDER BY rank LIMIT ?", (match, k)).fetchall()
-        except sqlite3.OperationalError:
+        except _OPERATIONAL_ERRORS:
             return []
         return [r["rowid"] for r in rows]
 
