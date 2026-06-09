@@ -34,6 +34,51 @@ let currentQuery = "";
 let currentPage = 1;
 let currentOpenId = null;
 
+// --- Assistant / semantic tiers ---
+let caps = { semantic: { enabled: false, ready: false }, assistant: { enabled: false } };
+let searchMode = "keyword";          // "keyword" | "hybrid"
+const chatHistory = [];              // session-only conversation
+
+async function loadCapabilities() {
+  try {
+    caps = await (await fetch("/api/capabilities")).json();
+  } catch (e) { return; }
+  if (caps.assistant.enabled) document.getElementById("tab-ask").hidden = false;
+  if (caps.semantic.enabled) document.getElementById("search-mode").hidden = false;
+}
+
+function refreshSemanticState() {
+  if (!caps.semantic.enabled) return;
+  fetch("/api/capabilities").then(r => r.json()).then(c => {
+    caps = c;
+    const modeBtn = document.getElementById("search-mode");
+    if (!caps.semantic.ready) {
+      const v = caps.semantic.vectors_total
+        ? Math.round(caps.semantic.vectors_done / caps.semantic.vectors_total * 100) : 0;
+      modeBtn.title = `Building knowledge base… ${v}%`;
+    } else {
+      modeBtn.title = "Toggle semantic search";
+    }
+    const building = document.getElementById("chat-building");
+    if (building) {
+      building.hidden = caps.semantic.ready;
+      if (!caps.semantic.ready) {
+        const v = caps.semantic.vectors_total
+          ? Math.round(caps.semantic.vectors_done / caps.semantic.vectors_total * 100) : 0;
+        building.textContent = `Building knowledge base… ${v}%`;
+      }
+    }
+    if (!caps.semantic.ready) setTimeout(refreshSemanticState, 3000);
+  });
+}
+
+document.getElementById("search-mode").addEventListener("click", () => {
+  searchMode = searchMode === "keyword" ? "hybrid" : "keyword";
+  document.getElementById("search-mode").textContent =
+    searchMode === "hybrid" ? "Semantic" : "Keyword";
+  reload();
+});
+
 async function getJSON(url) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
@@ -123,7 +168,13 @@ function pageUrl(page) {
   if (filterSender.value.trim()) params.set("from_q", filterSender.value.trim());
   if (filterHasAtt.checked) params.set("has_attachment", "1");
   if (filterSort.value) params.set("sort", filterSort.value);
-  if (currentQuery) { params.set("q", currentQuery); return `/api/search?${params.toString()}`; }
+  if (currentQuery) {
+    params.set("q", currentQuery);
+    if (searchMode === "hybrid" && caps.semantic && caps.semantic.ready) {
+      params.set("mode", "hybrid");
+    }
+    return `/api/search?${params.toString()}`;
+  }
   return `/api/messages?${params.toString()}`;
 }
 
@@ -545,10 +596,31 @@ function setMode(mode) {
   reload();
 }
 
+function exitChat() {
+  document.getElementById("chat").hidden = true;
+  document.getElementById("labels").hidden = false;
+  document.getElementById("list").hidden = false;
+  document.getElementById("reader").hidden = false;
+  document.getElementById("tab-ask").classList.remove("active");
+}
+
+document.getElementById("tab-ask").addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.getElementById("tab-ask").classList.add("active");
+  document.getElementById("labels").hidden = true;
+  document.getElementById("list").hidden = true;
+  document.getElementById("reader").hidden = true;
+  document.getElementById("chat").hidden = false;
+  refreshSemanticState();
+  document.getElementById("chat-input").focus();
+});
+
 tabFolders.addEventListener("click", () => {
+  exitChat();
   if (browseMode !== "folders") setMode("folders"); else toggleCollapse();
 });
 tabFiles.addEventListener("click", () => {
+  exitChat();
   if (browseMode !== "files") setMode("files"); else toggleCollapse();
 });
 try {
@@ -579,6 +651,80 @@ document.addEventListener("keydown", (e) => {
     target.click();  // reuses the row handler: setActive + openMessage
     target.scrollIntoView({ block: "nearest" });
   }
+});
+
+// --- Ask tab: streaming cited chat ---
+function appendBubble(role, html) {
+  const log = document.getElementById("chat-log");
+  const div = document.createElement("div");
+  div.className = "bubble " + role;
+  div.innerHTML = html;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+function renderAnswer(text, sources) {
+  let out = "";
+  let last = 0;
+  const re = /\[#(\d+)\]/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    out += escapeHtml(text.slice(last, match.index));
+    const id = match[1];
+    out += `<a href="#" class="cite" data-id="${id}">#${id}</a>`;
+    last = re.lastIndex;
+  }
+  out += escapeHtml(text.slice(last));
+  return out;
+}
+
+document.getElementById("chat-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("chat-input");
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = "";
+  appendBubble("user", escapeHtml(q));
+  chatHistory.push({ role: "user", content: q });
+  const answerDiv = appendBubble("assistant", "…");
+  let sources = [], text = "";
+
+  const resp = await fetch("/api/assistant/chat", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: chatHistory }),
+  });
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+      if (!line.trim()) continue;
+      const ev = JSON.parse(line);
+      if (ev.type === "building") {
+        answerDiv.innerHTML = `Building knowledge base… ${ev.percent}%. Try again shortly.`;
+      } else if (ev.type === "sources") {
+        sources = ev.sources;
+      } else if (ev.type === "token") {
+        text += ev.text;
+        answerDiv.innerHTML = renderAnswer(text, sources);
+      } else if (ev.type === "error") {
+        answerDiv.innerHTML = `<span class="err">${escapeHtml(ev.error)}</span>`;
+      }
+    }
+  }
+  if (text) chatHistory.push({ role: "assistant", content: text });
+  answerDiv.querySelectorAll("a.cite").forEach(a => {
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      openMessage(parseInt(a.dataset.id, 10));
+    });
+  });
 });
 
 // --- Opt-in remote-image archiving ---
@@ -629,4 +775,5 @@ archiveBtn.addEventListener("click", async () => {
 
 pollArchive();  // reflect any in-progress/finished archive on load
 
+loadCapabilities();
 pollStatus();
