@@ -23,7 +23,7 @@ def _iso_date(raw):
         return None
 
 
-def _body_text(msg):
+def message_body_text(msg):
     mime, content = get_display_body(msg)
     return html_to_text(content) if mime == "text/html" else content
 
@@ -47,7 +47,7 @@ def build_index(settings, store, progress=None):
             with store.savepoint():
                 msg = read_message(settings.mbox_path, offset, length)
                 date_raw = msg["date"]
-                body_text = _body_text(msg)  # compute once: used for preview + FTS body
+                body_text = message_body_text(msg)  # compute once: used for preview + FTS body
                 preview = " ".join(body_text.split())[:300]
                 mid = store.add_message(
                     offset, length, msg["message-id"], msg["subject"],

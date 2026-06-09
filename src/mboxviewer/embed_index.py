@@ -5,7 +5,7 @@ import sys
 
 from .reader import read_message, iter_attachments
 from .extract import extract_text
-from .indexer import _body_text
+from .indexer import message_body_text
 from .chunker import iter_chunks
 
 CHUNK_COMMIT_EVERY = 200
@@ -16,7 +16,7 @@ def build_chunks(settings, store, status):
     """Walk indexed messages, re-extract body+attachment text, store chunk rows.
     Resumable: a no-op if chunks already exist."""
     if store.count_chunks() > 0:
-        status.finish()  # already chunked; the embed pass re-checks vectors
+        # already chunked; return — the embed pass (run next) reports real readiness
         return
     messages = store.iter_messages_for_chunking()
     status.start_chunking(len(messages))
@@ -24,16 +24,17 @@ def build_chunks(settings, store, status):
     for row in messages:
         mid, offset, length = row["id"], row["offset"], row["length"]
         try:
-            msg = read_message(settings.mbox_path, offset, length)
-            subject = msg["subject"] or ""
-            from_addr = msg["from"] or ""
-            date = msg["date"] or ""
-            body = _body_text(msg)
-            atts = []
-            for idx, filename, mime, payload in iter_attachments(msg):
-                atts.append((idx, filename or "", extract_text(filename, mime, payload)))
-            for ch in iter_chunks(subject, from_addr, date, body, atts):
-                store.add_chunk(mid, ch.kind, ch.ord, ch.source_idx, ch.text)
+            with store.savepoint():
+                msg = read_message(settings.mbox_path, offset, length)
+                subject = msg["subject"] or ""
+                from_addr = msg["from"] or ""
+                date = msg["date"] or ""
+                body = message_body_text(msg)
+                atts = []
+                for idx, filename, mime, payload in iter_attachments(msg):
+                    atts.append((idx, filename or "", extract_text(filename, mime, payload)))
+                for ch in iter_chunks(subject, from_addr, date, body, atts):
+                    store.add_chunk(mid, ch.kind, ch.ord, ch.source_idx, ch.text)
         except Exception as exc:  # skip a bad message; keep going
             sys.stderr.write(f"chunk pass: skipping message {mid}: {exc}\n")
         done += 1

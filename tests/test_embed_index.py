@@ -49,6 +49,23 @@ def test_chunk_pass_is_resumable(tmp_path, sample_mbox):
     assert store.count_chunks() == n
 
 
+def test_bad_message_is_skipped_without_partial_chunks(tmp_path, sample_mbox, monkeypatch):
+    settings, store = _indexed_store(tmp_path, sample_mbox)
+    import mboxviewer.embed_index as ei
+    real = ei.extract_text
+    def boom(filename, mime, payload):
+        if filename == "report.docx":
+            raise RuntimeError("synthetic extract failure")
+        return real(filename, mime, payload)
+    monkeypatch.setattr(ei, "extract_text", boom)
+    ei.build_chunks(settings, store, EmbedStatus())
+    # the other message (invoice.pdf) still produced chunks; the failed one rolled back fully
+    assert store.count_chunks() > 0
+    msg_ids = {r["message_id"] for r in store.conn.execute("SELECT DISTINCT message_id FROM chunks")}
+    # exactly one message contributed chunks (the failed message has none)
+    assert len(msg_ids) == 1
+
+
 def test_embed_pass_resumes_after_partial(tmp_path, sample_mbox):
     settings, store = _indexed_store(tmp_path, sample_mbox)
     emb = FakeEmbedder()
