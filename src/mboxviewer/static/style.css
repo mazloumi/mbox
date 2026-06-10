@@ -25,6 +25,9 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
 /* Clicking a citation/attachment splits the Ask view: email reader on the LEFT, chat on the right. */
 #app.chat-mode.chat-reading { display: grid; grid-template-columns: 1fr 1fr; }
 #app.chat-mode.chat-reading #reader { display: flex; }
+/* Chat stays on the left, the cited email opens in a pane on the right. */
+#app.chat-mode.chat-reading #chat { order: 0; }
+#app.chat-mode.chat-reading #reader { order: 1; }
 #reader { position: relative; }
 /* Visibility toggled in JS (Pico forces [hidden]{display:none!important}, so CSS can't reveal it). */
 #reader-close { position: absolute; top: 8px; right: 8px; z-index: 3; padding: 2px 9px; line-height: 1.4;
