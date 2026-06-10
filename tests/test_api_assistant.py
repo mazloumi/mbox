@@ -61,7 +61,7 @@ def test_chat_streams_with_fake_client(tmp_path, sample_mbox, monkeypatch):
 
     monkeypatch.setattr(embed, "make_embedder", lambda settings: FakeEmbedder())
     monkeypatch.setattr(assistant, "make_anthropic_generate",
-                        lambda client, model: (lambda system, messages: iter(["Answer ", "[#1]"])))
+                        lambda client, model, **kw: (lambda system, messages: iter(["Answer ", "[#1]"])))
 
     app = _app(tmp_path, sample_mbox, assistant_enabled=True, anthropic_api_key="sk-ant-test")
     c = TestClient(app)

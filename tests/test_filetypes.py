@@ -1,4 +1,15 @@
-from mboxviewer.filetypes import category_for_mime, CATEGORY_ORDER
+from mboxviewer.filetypes import category_for_mime, fine_type, CATEGORY_ORDER
+
+
+def test_fine_type_splits_audio_video_and_labels_singular():
+    assert fine_type("audio/mpeg", "song.mp3") == "audio"
+    assert fine_type("video/mp4", "clip.mp4") == "video"
+    # octet-stream falls back to the extension for the audio/video split
+    assert fine_type("application/octet-stream", "voice.m4a") == "audio"
+    assert fine_type("application/octet-stream", "home.mov") == "video"
+    assert fine_type("application/pdf", "invoice.pdf") == "document"
+    assert fine_type("image/png", "photo.png") == "image"
+    assert fine_type("application/octet-stream", "mystery.bin") == "file"
 
 
 def test_categories():

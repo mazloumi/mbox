@@ -244,6 +244,35 @@ def create_app(settings, index_in_background=True):
         return {"messages": [_msg_summary(r) for r in rows], "page": page,
                 "mode": "keyword"}
 
+    def _run_assistant_tool(name: str, tool_input: dict) -> str:
+        """Execute an assistant tool call against the attachment catalog and return
+        a JSON string for the tool_result. Mirrors the Files tab's data."""
+        if name != "query_attachments":
+            return json.dumps({"error": f"unknown tool {name}"})
+        ti = tool_input or {}
+        limit = ti.get("limit") or 50
+        try:
+            limit = max(1, min(int(limit), 200))
+        except (TypeError, ValueError):
+            limit = 50
+        cat = ti.get("category")
+        fname = ti.get("filename_contains")
+        sender = ti.get("sender_contains")
+        total, rows = store.query_attachments(
+            category=cat, filename_contains=fname, sender_contains=sender, limit=limit)
+        files = [{"id": r["message_id"], "filename": r["filename"],
+                  "type": filetypes.fine_type(r["mime"], r["filename"]),
+                  "size": r["size"], "subject": r["subject"],
+                  "from": r["from_addr"], "date": r["date"]} for r in rows]
+        # exact type breakdown over ALL matches (esp. audio vs video within "Media")
+        type_counts = {}
+        for r in store.attachment_kinds(category=cat, filename_contains=fname,
+                                        sender_contains=sender):
+            t = filetypes.fine_type(r["mime"], r["filename"])
+            type_counts[t] = type_counts.get(t, 0) + 1
+        return json.dumps({"total_matches": total, "type_counts": type_counts,
+                           "returned": len(files), "files": files})
+
     @app.post("/api/assistant/chat")
     def assistant_chat(payload: dict):
         if not settings.assistant_active():
@@ -274,7 +303,9 @@ def create_app(settings, index_in_background=True):
             yield json.dumps({"type": "sources",
                               "sources": assistant_mod.sources_for(snippets)}) + "\n"
             client = anthropic_client()
-            generate = assistant_mod.make_anthropic_generate(client, settings.gen_model)
+            generate = assistant_mod.make_anthropic_generate(
+                client, settings.gen_model,
+                tools=[assistant_mod.ATTACHMENT_TOOL], run_tool=_run_assistant_tool)
             try:
                 for text in assistant_mod.iter_answer(generate, history, question, snippets):
                     yield json.dumps({"type": "token", "text": text}) + "\n"

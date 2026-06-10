@@ -62,6 +62,37 @@ def test_get_message_and_attachments(tmp_path):
     assert atts[0]["filename"] == "invoice.pdf" and atts[0]["idx"] == 0
 
 
+def test_query_attachments_catalog(tmp_path):
+    s = _store(tmp_path)
+    m1 = s.add_message(0, 10, "<a>", "Trip", "ava@x.com", "me@x.com", "2024-03-01T00:00:00", "r")
+    m2 = s.add_message(10, 10, "<b>", "Work", "boss@x.com", "me@x.com", "2024-01-01T00:00:00", "r")
+    s.add_attachment(m1, 0, "beach.mp4", "video/mp4", 100, "Media")
+    s.add_attachment(m1, 1, "song.m4a", "audio/mp4", 50, "Media")
+    s.add_attachment(m2, 0, "report.pdf", "application/pdf", 80, "Documents")
+    s.commit()
+
+    total, rows = s.query_attachments(category="Media")
+    assert total == 2
+    assert {r["filename"] for r in rows} == {"beach.mp4", "song.m4a"}
+    # joined message metadata is present for citation
+    assert rows[0]["message_id"] == m1 and rows[0]["from_addr"] == "ava@x.com"
+
+    # filename + sender filters
+    assert s.query_attachments(filename_contains="beach")[0] == 1
+    assert s.query_attachments(category="Documents", sender_contains="boss")[0] == 1
+    assert s.query_attachments(category="Documents", sender_contains="ava")[0] == 0
+
+    # limit caps the sample but not the reported total
+    total_all, sample = s.query_attachments(limit=1)
+    assert total_all == 3 and len(sample) == 1
+
+    # attachment_kinds returns every match (mime, filename) for an exact breakdown
+    kinds = s.attachment_kinds(category="Media")
+    assert len(kinds) == 2
+    assert {(k["mime"], k["filename"]) for k in kinds} == {
+        ("video/mp4", "beach.mp4"), ("audio/mp4", "song.m4a")}
+
+
 def test_all_message_spans(tmp_path, sample_mbox):
     from mboxviewer.config import Settings
     from mboxviewer.indexer import build_index

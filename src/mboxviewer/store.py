@@ -396,6 +396,41 @@ class Store:
             "SELECT category, COUNT(*) AS c FROM attachments GROUP BY category").fetchall()
 
     @staticmethod
+    def _attach_where(category, filename_contains, sender_contains):
+        where, params = [], []
+        if category:
+            where.append("a.category = ?")
+            params.append(category)
+        if filename_contains and filename_contains.strip():
+            where.append("a.filename LIKE ? ESCAPE '\\'")
+            params.append("%" + _like_escape(filename_contains.strip()) + "%")
+        if sender_contains and sender_contains.strip():
+            where.append("m.from_addr LIKE ? ESCAPE '\\'")
+            params.append("%" + _like_escape(sender_contains.strip()) + "%")
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        return " FROM attachments a JOIN messages m ON m.id = a.message_id" + clause, params
+
+    def query_attachments(self, category=None, filename_contains=None,
+                          sender_contains=None, limit=50):
+        """Catalog lookup for the assistant: (total_match_count, capped sample rows)
+        joined to message metadata. Filters on the same stored `category` the Files
+        tab uses, so results line up with it."""
+        base, params = self._attach_where(category, filename_contains, sender_contains)
+        total = self.conn.execute("SELECT COUNT(*)" + base, params).fetchone()[0]
+        rows = self.conn.execute(
+            "SELECT a.message_id AS message_id, a.filename AS filename, a.mime AS mime,"
+            " a.size AS size, m.subject AS subject, m.from_addr AS from_addr, m.date AS date"
+            + base + " ORDER BY m.date DESC LIMIT ?", params + [limit]).fetchall()
+        return total, rows
+
+    def attachment_kinds(self, category=None, filename_contains=None, sender_contains=None):
+        """All (mime, filename) for a filter — lightweight, for an exact type breakdown
+        over the full match set (not just the capped sample)."""
+        base, params = self._attach_where(category, filename_contains, sender_contains)
+        return self.conn.execute(
+            "SELECT a.mime AS mime, a.filename AS filename" + base, params).fetchall()
+
+    @staticmethod
     def _files_filter(category, query):
         """Build (where, params) for category + filename/FTS query filters."""
         where = []
