@@ -74,6 +74,7 @@ function refreshSemanticState() {
     fetch("/api/capabilities").then(r => r.json()).then(c => {
       caps = c;
       const s = caps.semantic;
+      const pct = s.vectors_total ? Math.round(s.vectors_done / s.vectors_total * 100) : 0;
       const cb = document.getElementById("semantic-search");
       const label = document.getElementById("semantic-search-label");
       if (cb && label) {
@@ -83,7 +84,6 @@ function refreshSemanticState() {
           : semanticProgressText(s);
         const status = document.getElementById("ss-status");
         if (status) {
-          const pct = s.vectors_total ? Math.round(s.vectors_done / s.vectors_total * 100) : 0;
           status.textContent = s.ready ? ""
             : (s.state === "error" ? " · unavailable" : " · building " + pct + "%");
         }
@@ -93,6 +93,16 @@ function refreshSemanticState() {
         building.hidden = s.ready;
         if (!s.ready) building.textContent = semanticProgressText(s);
       }
+      // Keep the chat input + Send disabled until the index is ready (mirrors the checkbox).
+      const chatInput = document.getElementById("chat-input");
+      const chatSend = document.querySelector("#chat-form button");
+      if (chatInput) {
+        chatInput.disabled = !s.ready;
+        chatInput.placeholder = s.ready ? "Ask about your mail…"
+          : (s.state === "error" ? "Assistant unavailable"
+                                 : "Ask about your mail… (building " + pct + "%)");
+      }
+      if (chatSend) chatSend.disabled = !s.ready;
       if (!s.ready && s.state !== "error") setTimeout(tick, 3000);
       else _semPolling = false;
     }).catch(() => { _semPolling = false; });
