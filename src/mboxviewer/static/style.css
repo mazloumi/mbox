@@ -22,6 +22,13 @@ mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; 
 #app.chat-mode #list,
 #app.chat-mode #reader { display: none; }
 #app.chat-mode #chat { display: flex; flex-direction: column; height: 100%; padding: 1rem; overflow: hidden; min-height: 0; }
+/* Clicking a citation/attachment splits the Ask view: email reader on the LEFT, chat on the right. */
+#app.chat-mode.chat-reading { display: grid; grid-template-columns: 1fr 1fr; }
+#app.chat-mode.chat-reading #reader { display: flex; }
+#reader { position: relative; }
+/* Visibility toggled in JS (Pico forces [hidden]{display:none!important}, so CSS can't reveal it). */
+#reader-close { position: absolute; top: 8px; right: 8px; z-index: 3; padding: 2px 9px; line-height: 1.4;
+  border: 1px solid var(--line, #ddd); background: var(--surface, #fff); border-radius: 6px; cursor: pointer; }
 #searchbar { padding: 10px; border-bottom: 1px solid #ddd; position: sticky; top: 0;
   background: #fff; z-index: 2; }
 #q { width: 100%; padding: 6px 8px; }
@@ -91,8 +98,25 @@ img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; cursor
 .bubble { margin: .4rem 0; padding: .5rem .75rem; border-radius: 8px; max-width: 80%; white-space: pre-wrap; }
 .bubble.user { background: #e8f0fe; margin-left: auto; }
 .bubble.assistant { background: #f4f4f4; }
-.bubble .cite { font-size: .85em; text-decoration: none; background: #ddd; border-radius: 4px; padding: 0 4px; margin: 0 1px; }
+.bubble .cite { font-size: .85em; text-decoration: none; background: #ddd; border-radius: 4px; padding: 0 4px; margin: 0 1px; cursor: pointer; }
 .bubble .err { color: #b00; }
+/* Rendered markdown in assistant answers (user bubbles stay plain pre-wrap text). */
+.bubble.assistant { white-space: normal; }
+.bubble.assistant > :first-child { margin-top: 0; }
+.bubble.assistant > :last-child { margin-bottom: 0; }
+.bubble.assistant p { margin: .5em 0; }
+.bubble.assistant ul, .bubble.assistant ol { margin: .5em 0; padding-left: 1.3em; }
+.bubble.assistant li { margin: .2em 0; }
+.bubble.assistant li > p { margin: .2em 0; }
+.bubble.assistant h1, .bubble.assistant h2, .bubble.assistant h3,
+.bubble.assistant h4 { font-size: 1.05em; font-weight: 600; margin: .6em 0 .3em; }
+.bubble.assistant code { background: var(--hover, rgba(0,0,0,.06)); padding: .05em .35em; border-radius: 4px; font-size: .9em; }
+.bubble.assistant pre { background: var(--hover, rgba(0,0,0,.06)); padding: .6em .8em; border-radius: 8px; overflow-x: auto; margin: .5em 0; }
+.bubble.assistant pre code { background: none; padding: 0; }
+.bubble.assistant table { border-collapse: collapse; margin: .5em 0; font-size: .95em; }
+.bubble.assistant th, .bubble.assistant td { border: 1px solid var(--line, #ddd); padding: .25em .5em; }
+.bubble.assistant blockquote { margin: .5em 0; padding-left: .8em; border-left: 3px solid var(--line, #ddd); opacity: .85; }
+.bubble.assistant a:not(.cite) { color: var(--accent, #3b5bdb); }
 #chat-form { display: flex; gap: .5rem; padding-top: .5rem; }
 #chat-input { flex: 1; }
 #semantic-search-label { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #444; }

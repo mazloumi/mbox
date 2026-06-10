@@ -43,12 +43,18 @@ async function loadCapabilities() {
   try {
     caps = await (await fetch("/api/capabilities")).json();
   } catch (e) { return; }
+  // App name reflects the active tier: assistant > semantic search > plain viewer.
+  const appName = caps.assistant.enabled ? "mbox assistant"
+    : caps.semantic.enabled ? "mbox semantic search"
+    : "mbox viewer";
+  document.getElementById("logo").textContent = "📬 " + appName;
+  document.title = appName;
   if (caps.assistant.enabled) document.getElementById("tab-ask").hidden = false;
   if (caps.semantic.enabled) {
     document.getElementById("semantic-search-label").hidden = false;
     refreshSemanticState();
   }
-  restoreViewFromHash();   // now that tab availability is known, honor #ask
+  restoreViewFromHash();   // now that tab availability is known, honor #ask (and default to it)
 }
 
 // Human-readable build progress straight from /api/capabilities.semantic.
@@ -679,7 +685,8 @@ function setMode(mode) {
 }
 
 function exitChat() {
-  appEl.classList.remove("chat-mode");
+  appEl.classList.remove("chat-mode", "chat-reading");
+  document.getElementById("reader-close").hidden = true;
   document.getElementById("tab-ask").classList.remove("active");
 }
 
@@ -707,15 +714,16 @@ tabFiles.addEventListener("click", () => {
 });
 
 // Restore the view from the URL hash (#files / #ask) on load so a reload returns here.
+// With no hash, default to Ask when the assistant is available, otherwise Folders.
 function restoreViewFromHash() {
   const h = (location.hash || "").replace(/^#/, "");
+  const askTab = document.getElementById("tab-ask");
   if (h === "files" && browseMode !== "files") {
     tabFiles.click();
-  } else if (h === "ask") {
-    const t = document.getElementById("tab-ask");
-    if (!t.hidden && !appEl.classList.contains("chat-mode")) t.click();
+  } else if (h === "ask" || (!h && !askTab.hidden)) {
+    if (!askTab.hidden && !appEl.classList.contains("chat-mode")) askTab.click();
   }
-  // "folders" (or empty) is the default — nothing to do.
+  // "folders" (or empty with no assistant) is the default — nothing to do.
 }
 
 // Dedicated collapse/expand control for the left sidebar (persisted, restored on load).
@@ -781,19 +789,45 @@ function appendBubble(role, html) {
   return div;
 }
 
-function renderAnswer(text, sources) {
-  let out = "";
-  let last = 0;
+// Turn `[#123]` citation markers found in text nodes into clickable chips.
+// Done on the DOM (not the HTML string) so markers inside tags/attributes are untouched.
+function linkifyCitations(root) {
   const re = /\[#(\d+)\]/g;
-  let match;
-  while ((match = re.exec(text)) !== null) {
-    out += escapeHtml(text.slice(last, match.index));
-    const id = match[1];
-    out += `<a href="#" class="cite" data-id="${id}">#${id}</a>`;
-    last = re.lastIndex;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    re.lastIndex = 0;
+    if (re.test(node.nodeValue)) targets.push(node);
   }
-  out += escapeHtml(text.slice(last));
-  return out;
+  for (const t of targets) {
+    const s = t.nodeValue;
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(s))) {
+      if (m.index > last) frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+      const a = document.createElement("a");
+      a.href = "#";
+      a.className = "cite";
+      a.dataset.id = m[1];
+      a.textContent = "#" + m[1];
+      frag.appendChild(a);
+      last = re.lastIndex;
+    }
+    if (last < s.length) frag.appendChild(document.createTextNode(s.slice(last)));
+    t.parentNode.replaceChild(frag, t);
+  }
+}
+
+// Render the assistant's markdown answer to safe HTML, then wire up citation chips.
+// The answer can quote attacker-controlled email text, so sanitize before display
+// (the chat lives in the main, non-sandboxed document).
+function renderAnswer(text) {
+  const div = document.createElement("div");
+  div.innerHTML = DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }));
+  linkifyCitations(div);
+  return div.innerHTML;
 }
 
 document.getElementById("chat-form").addEventListener("submit", async (e) => {
@@ -829,7 +863,7 @@ document.getElementById("chat-form").addEventListener("submit", async (e) => {
         sources = ev.sources;
       } else if (ev.type === "token") {
         text += ev.text;
-        answerDiv.innerHTML = renderAnswer(text, sources);
+        answerDiv.innerHTML = renderAnswer(text);
       } else if (ev.type === "error") {
         answerDiv.innerHTML = `<span class="err">${escapeHtml(ev.error)}</span>`;
       }
@@ -839,9 +873,22 @@ document.getElementById("chat-form").addEventListener("submit", async (e) => {
   answerDiv.querySelectorAll("a.cite").forEach(a => {
     a.addEventListener("click", (ev) => {
       ev.preventDefault();
-      openMessage(parseInt(a.dataset.id, 10));
+      openCitedMessage(parseInt(a.dataset.id, 10));
     });
   });
+});
+
+// A citation click opens the email in a reader pane to the LEFT of the chat
+// (chat-reading splits the Ask view). Attachments then use the normal viewers/players.
+function openCitedMessage(id) {
+  appEl.classList.add("chat-reading");
+  document.getElementById("reader-close").hidden = false;
+  openMessage(id);
+}
+
+document.getElementById("reader-close").addEventListener("click", () => {
+  appEl.classList.remove("chat-reading");
+  document.getElementById("reader-close").hidden = true;
 });
 
 // --- Opt-in remote-image archiving ---
