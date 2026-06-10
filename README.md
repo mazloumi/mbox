@@ -197,6 +197,76 @@ and you can delete the originals in Gmail, drop/rebuild the index, or move machi
 everything still renders offline. Re-running "Archive remote images" on an unchanged mbox
 is an instant no-op (it records the mbox size/mtime and skips re-downloading).
 
+## AI features (optional)
+
+Both features are **off by default**. With both off the app behaves exactly as before —
+local, keyword search only, no external network calls. The embedding and Claude client
+dependencies are included in the Docker image but imported lazily, so they consume no
+memory when the tiers are off and toggling a tier on needs no container rebuild.
+
+### Tier 1 — Semantic search (fully local, no API key)
+
+Set `SEMANTIC_SEARCH=1` (in `.env` or as an environment variable before starting).
+
+- Builds a **local vector index** alongside the keyword index — a one-time background
+  build that runs the first time the feature is enabled. The embedding model
+  (`BAAI/bge-small-en-v1.5`, ~130 MB) is downloaded on first use and cached in the
+  container.
+- Adds a **Keyword / Semantic toggle** next to the search box. Semantic mode finds
+  messages by meaning rather than exact words (e.g. "flight booking" matches "airline
+  reservation").
+- **No data leaves the machine.** The embedding model runs on CPU inside the container;
+  no API key is required.
+
+### Tier 2 — AI assistant / chat (requires an Anthropic API key)
+
+Set `ASSISTANT_ENABLED=1` and provide your key:
+
+```bash
+ASSISTANT_ENABLED=1
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+- Adds an **Ask tab** in the reader pane with a multi-turn chat interface.
+- Answers are **cited** — each response links to the specific messages it drew on.
+- Enabling the assistant implies `SEMANTIC_SEARCH=1` (the vector index is used to
+  retrieve relevant snippets before each answer).
+- **Only retrieved snippets are sent to Anthropic** — the full mailbox, raw mbox bytes,
+  and embeddings never leave the machine.
+- Configurable model via `ASSISTANT_MODEL` (default `claude-sonnet-4-6`).
+- **Rough cost:** a typical question retrieves 5–20 k input tokens. At Sonnet pricing
+  that is roughly **1–5 cents per question**. Monitor your Anthropic usage dashboard if
+  you ask many questions.
+
+### GPU-accelerated embeddings (optional)
+
+If you have a GPU on the host and Ollama running, set `EMBED_BACKEND=ollama` (and
+optionally `OLLAMA_URL` / `EMBED_MODEL`) to offload embedding inference to the host GPU
+instead of the in-container CPU. This speeds up the one-time vector index build; it has
+no effect on query results.
+
+### Privacy & security note
+
+- Default (both off): **no egress, unchanged behavior**. The existing localhost-only,
+  no-authentication caution applies equally.
+- When the assistant is on it has access to your **entire mailbox** and sends retrieved
+  snippets to Anthropic's API. The existing advice — **run only on your own computer,
+  never expose the port** — applies even more strongly in this mode.
+- `ANTHROPIC_API_KEY` is read from the environment at startup. It is **never logged,
+  persisted to disk, or included in the index**.
+
+### Quick-reference env vars
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SEMANTIC_SEARCH` | *(off)* | Set to `1` to enable local vector search |
+| `ASSISTANT_ENABLED` | *(off)* | Set to `1` to enable the AI chat assistant (implies `SEMANTIC_SEARCH`) |
+| `ANTHROPIC_API_KEY` | — | Required when `ASSISTANT_ENABLED=1` |
+| `ASSISTANT_MODEL` | `claude-sonnet-4-6` | Anthropic model to use for the assistant |
+| `EMBED_BACKEND` | `local` | `local` (in-container CPU) or `ollama` (host GPU) |
+| `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | Sentence-transformer model for embeddings |
+| `OLLAMA_URL` | `http://host.docker.internal:11434` | Ollama base URL (only used when `EMBED_BACKEND=ollama`) |
+
 ## Limitations
 
 - **No authentication and no HTTPS** — local-use only (see the security note above).
@@ -253,3 +323,10 @@ Then open http://localhost:9000.
 | `INDEX_PATH` | container        | `/index/index.db`  | Path to the SQLite index inside the container      |
 | `ARCHIVE_DIR`| container        | `/archive`         | Path to the image archive inside the container     |
 | `HTTPS_PROXY`| host/container   | —                  | Optional proxy for the image-archive downloader (privacy) |
+| `SEMANTIC_SEARCH` | host (compose) | *(off)* | Set to `1` to enable local vector/semantic search |
+| `ASSISTANT_ENABLED` | host (compose) | *(off)* | Set to `1` to enable the AI chat assistant (implies `SEMANTIC_SEARCH`) |
+| `ANTHROPIC_API_KEY` | host (compose) | — | Required when `ASSISTANT_ENABLED=1` |
+| `ASSISTANT_MODEL` | container | `claude-sonnet-4-6` | Anthropic model used by the assistant |
+| `EMBED_BACKEND` | container | `local` | `local` (in-container CPU) or `ollama` (host GPU) |
+| `EMBED_MODEL` | container | `BAAI/bge-small-en-v1.5` | Sentence-transformer model for embeddings |
+| `OLLAMA_URL` | container | `http://host.docker.internal:11434` | Ollama base URL (used when `EMBED_BACKEND=ollama`) |

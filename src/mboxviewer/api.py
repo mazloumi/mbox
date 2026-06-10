@@ -1,4 +1,5 @@
 import html
+import json
 import os
 import re
 import sys
@@ -16,12 +17,16 @@ from .store import Store
 from .reader import read_message, read_message_bytes, iter_attachments, get_display_body
 from .sanitize import sanitize_html
 from .indexer import build_index, index_is_current
-from .status import IndexStatus
+from .status import IndexStatus, EmbedStatus
 from . import assets
 from . import filetypes
 from .assetstore import AssetStore
 from .archive import ArchiveStatus, run_archive
 from .extract import extract_text, iter_tnef_attachments
+from . import embed as embed_mod
+from . import retrieve as retrieve_mod
+from . import assistant as assistant_mod
+from .embed_index import build_chunks, build_embeddings
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -87,7 +92,7 @@ def _content_disposition(filename, inline=False):
 
 def create_app(settings, index_in_background=True):
     app = FastAPI(title="mbox viewer")
-    store = Store(settings.index_path)
+    store = Store(settings.index_path, enable_vectors=settings.semantic_active())
     # create_schema() must run here, synchronously, BEFORE the indexer thread is
     # spawned below: index_is_current() and the first request handlers query tables
     # that must already exist, and the background thread's clear()/writes must never
@@ -105,6 +110,32 @@ def create_app(settings, index_in_background=True):
     app.state.asset_store = asset_store
     app.state.archive_status = archive_status
 
+    embed_status = EmbedStatus()
+    app.state.embed_status = embed_status
+    embedder = embed_mod.make_embedder(settings) if settings.semantic_active() else None
+    app.state.embedder = embedder
+
+    _client_box = {}
+
+    def anthropic_client():
+        # Lock-free memoization: deliberate for this single-user app — a concurrent
+        # first-call race just constructs a throwaway client (no network), harmless.
+        if "c" not in _client_box:
+            import anthropic  # lazy
+            _client_box["c"] = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        return _client_box["c"]
+
+    def _run_embed():
+        try:
+            build_chunks(settings, store, embed_status)
+            build_embeddings(settings, store, embedder, embed_status)
+        except Exception as exc:  # noqa: BLE001 - surface to the capabilities probe
+            sys.stderr.write(f"semantic build failed: {exc}\n")
+            embed_status.fail(exc)
+        except BaseException as exc:
+            embed_status.fail(RuntimeError(f"semantic build interrupted: {exc}"))
+            raise
+
     def _run_index():
         try:
             bytes_total = os.path.getsize(settings.mbox_path)
@@ -119,12 +150,22 @@ def create_app(settings, index_in_background=True):
             status.fail(RuntimeError(f"indexer interrupted: {exc}"))
             raise
 
+    def _index_then_embed():
+        _run_index()
+        if settings.semantic_active():
+            _run_embed()
+
     if index_is_current(settings, store):
         status.mark_ready(store.message_count())
+        if settings.semantic_active():
+            if index_in_background:
+                threading.Thread(target=_run_embed, daemon=True).start()
+            else:
+                _run_embed()
     elif index_in_background:
-        threading.Thread(target=_run_index, daemon=True).start()
+        threading.Thread(target=_index_then_embed, daemon=True).start()
     else:
-        _run_index()
+        _index_then_embed()
 
     @app.get("/api/status")
     def get_status():
@@ -132,6 +173,31 @@ def create_app(settings, index_in_background=True):
         snap["mbox"] = settings.mbox_name or os.path.basename(settings.mbox_path)
         snap["current"] = index_is_current(settings, store)
         return snap
+
+    def _semantic_ready():
+        return settings.semantic_active() and embed_status.snapshot()["ready"]
+
+    @app.get("/api/capabilities")
+    def capabilities():
+        snap = embed_status.snapshot()
+        sem_on = settings.semantic_active()
+        asst_on = settings.assistant_active()
+        return {
+            "semantic": {
+                "enabled": sem_on,
+                "ready": sem_on and snap["ready"],
+                "state": snap["state"] if sem_on else "off",
+                "messages_done": snap["messages_done"],
+                "messages_total": snap["messages_total"],
+                "vectors_done": snap["vectors_done"],
+                "vectors_total": snap["vectors_total"],
+            },
+            "assistant": {
+                "enabled": asst_on,
+                "ready": asst_on and snap["ready"],
+                "model": settings.gen_model if asst_on else None,
+            },
+        }
 
     @app.get("/api/labels")
     def labels():
@@ -154,12 +220,58 @@ def create_app(settings, index_in_background=True):
                page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
                date_from: Optional[str] = None, date_to: Optional[str] = None,
                from_q: Optional[str] = None, has_attachment: bool = False,
-               sort: str = "date_desc"):
+               sort: str = "date_desc", mode: str = "keyword"):
         offset = (page - 1) * page_size
+        if mode == "hybrid" and _semantic_ready() and not label and page == 1 \
+                and not (date_from or date_to or from_q or has_attachment):
+            rows = retrieve_mod.search(store, embedder, q, page_size)
+            return {"messages": [_msg_summary(r) for r in rows], "page": page,
+                    "mode": "hybrid"}
         rows = store.search(q, label, page_size, offset,
                             date_from=date_from, date_to=date_to, from_q=from_q,
                             has_attachment=has_attachment, sort=sort)
-        return {"messages": [_msg_summary(r) for r in rows], "page": page}
+        return {"messages": [_msg_summary(r) for r in rows], "page": page,
+                "mode": "keyword"}
+
+    @app.post("/api/assistant/chat")
+    def assistant_chat(payload: dict):
+        if not settings.assistant_active():
+            raise HTTPException(404, "assistant not enabled")
+        messages = payload.get("messages")
+        if not isinstance(messages, list) or not messages:
+            raise HTTPException(400, "messages must be a non-empty list")
+        last = messages[-1]
+        if (not isinstance(last, dict) or last.get("role") != "user"
+                or not isinstance(last.get("content"), str) or not last["content"].strip()):
+            raise HTTPException(400, "last message must be a user turn with text content")
+        question = last["content"]
+        history = messages[:-1]
+
+        def _ndjson():
+            snap = embed_status.snapshot()
+            if not snap["ready"]:
+                if snap["state"] == "error":
+                    yield json.dumps({"type": "error",
+                                      "error": "knowledge base build failed; check server logs"}) + "\n"
+                else:
+                    total = snap["vectors_total"] or 1
+                    pct = round(snap["vectors_done"] / total * 100, 1)
+                    yield json.dumps({"type": "building", "percent": pct}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+                return
+            snippets = retrieve_mod.retrieve_context(store, embedder, question)
+            yield json.dumps({"type": "sources",
+                              "sources": assistant_mod.sources_for(snippets)}) + "\n"
+            client = anthropic_client()
+            generate = assistant_mod.make_anthropic_generate(client, settings.gen_model)
+            try:
+                for text in assistant_mod.iter_answer(generate, history, question, snippets):
+                    yield json.dumps({"type": "token", "text": text}) + "\n"
+            except Exception as exc:  # noqa: BLE001
+                yield json.dumps({"type": "error", "error": str(exc)}) + "\n"
+            yield json.dumps({"type": "done"}) + "\n"
+
+        return StreamingResponse(_ndjson(), media_type="application/x-ndjson")
 
     @app.get("/api/messages/{message_id}")
     def message_detail(message_id: int, allow_remote: bool = False):

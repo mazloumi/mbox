@@ -4,6 +4,15 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 
+# Operational errors come from stdlib sqlite3, or from pysqlite3 (separate exception
+# hierarchy) when it's the active driver on extension-less dev Python. Catch both.
+_OPERATIONAL_ERRORS = (sqlite3.OperationalError,)
+try:
+    import pysqlite3 as _pysqlite3
+    _OPERATIONAL_ERRORS = (sqlite3.OperationalError, _pysqlite3.OperationalError)
+except ImportError:
+    pass
+
 # Bump whenever a change requires a full re-index even on an unchanged mbox —
 # a new/changed column, extractor, or categorization rule. `index_is_current`
 # compares this against the value stamped into `meta` at build time.
@@ -38,6 +47,15 @@ CREATE TABLE IF NOT EXISTS attachments (
   size INTEGER,
   category TEXT
 );
+CREATE TABLE IF NOT EXISTS chunks (
+  id INTEGER PRIMARY KEY,
+  message_id INTEGER NOT NULL REFERENCES messages(id),
+  kind TEXT NOT NULL,
+  ord INTEGER NOT NULL,
+  source_idx INTEGER,
+  text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chunks_by_message ON chunks(message_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   subject, from_addr, to_addr, body, attachments, content=''
 );
@@ -76,10 +94,11 @@ def _message_filters(date_from, date_to, from_q, has_attachment):
 
 
 class Store:
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, enable_vectors: bool = False):
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self._db_path = db_path
         self._local = threading.local()
+        self._enable_vectors = enable_vectors
 
     @property
     def conn(self):
@@ -90,6 +109,35 @@ class Store:
             c.row_factory = sqlite3.Row
             c.execute("PRAGMA journal_mode=WAL")
             c.execute("PRAGMA busy_timeout=5000")
+            if self._enable_vectors:
+                import sqlite_vec  # lazy: only when the semantic tier is active
+                # Production (Docker python:3.12-slim) supports loadable extensions on
+                # stdlib sqlite3; macOS dev Python does not, so fall back to pysqlite3
+                # (declared in requirements-dev.txt).
+                try:
+                    c.enable_load_extension(True)
+                    sqlite_vec.load(c)
+                    c.enable_load_extension(False)
+                except AttributeError:
+                    # Python built without SQLITE_ENABLE_LOAD_EXTENSION (e.g. Apple Python
+                    # on macOS). Fall back to pysqlite3 which bundles an extension-capable
+                    # sqlite3 build.
+                    try:
+                        import pysqlite3  # type: ignore
+                    except ImportError:
+                        raise RuntimeError(
+                            "sqlite-vec requires a sqlite3 build with extension loading. "
+                            "Install pysqlite3 (`pip install pysqlite3`) or use Python "
+                            "compiled with SQLITE_ENABLE_LOAD_EXTENSION."
+                        )
+                    c.close()  # release the stdlib handle before swapping drivers
+                    c = pysqlite3.connect(self._db_path, check_same_thread=False)
+                    c.row_factory = pysqlite3.Row
+                    c.execute("PRAGMA journal_mode=WAL")
+                    c.execute("PRAGMA busy_timeout=5000")
+                    c.enable_load_extension(True)
+                    sqlite_vec.load(c)
+                    c.enable_load_extension(False)
             self._local.conn = c
         return c
 
@@ -100,11 +148,11 @@ class Store:
         self.conn.executescript(SCHEMA)
         try:
             self.conn.execute("ALTER TABLE attachments ADD COLUMN category TEXT")
-        except sqlite3.OperationalError:
+        except _OPERATIONAL_ERRORS:
             pass  # column already present (fresh CREATE or prior migration)
         try:
             self.conn.execute("ALTER TABLE messages ADD COLUMN preview TEXT")
-        except sqlite3.OperationalError:
+        except _OPERATIONAL_ERRORS:
             pass  # column already present (fresh CREATE or prior migration)
         self.conn.commit()
 
@@ -115,10 +163,12 @@ class Store:
             "DELETE FROM attachments;"
             "DELETE FROM labels;"
             "DELETE FROM messages;"
+            "DELETE FROM chunks;"
             "DELETE FROM meta;")
         # messages_fts is a contentless FTS5 table; the special 'delete-all'
         # command is the supported way to empty it.
         self.conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('delete-all')")
+        self.conn.execute("DROP TABLE IF EXISTS vec_chunks")
         self.conn.commit()
 
     @contextmanager
@@ -175,6 +225,108 @@ class Store:
             "INSERT INTO messages_fts(rowid,subject,from_addr,to_addr,body,attachments)"
             " VALUES(?,?,?,?,?,?)", (rowid, subject, from_addr, to_addr, body, attachments))
 
+    # --- chunks + vectors (semantic tier) -------------------------------------
+    def ensure_vector_schema(self, dim):
+        """Create the sqlite-vec virtual table at the embedding dimension. Idempotent."""
+        self.conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0("
+            "chunk_id INTEGER PRIMARY KEY, embedding float[%d])" % int(dim))
+        self.conn.commit()
+
+    def add_chunk(self, message_id, kind, ord, source_idx, text):
+        cur = self.conn.execute(
+            "INSERT INTO chunks(message_id,kind,ord,source_idx,text) VALUES(?,?,?,?,?)",
+            (message_id, kind, ord, source_idx, text))
+        return cur.lastrowid
+
+    def count_chunks(self):
+        return self.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+
+    def iter_messages_for_chunking(self):
+        return self.conn.execute(
+            "SELECT id, offset, length FROM messages ORDER BY id").fetchall()
+
+    def chunks_without_vectors(self, limit):
+        try:
+            rows = self.conn.execute(
+                "SELECT c.id AS id, c.text AS text FROM chunks c "
+                "LEFT JOIN vec_chunks v ON v.chunk_id = c.id "
+                "WHERE v.chunk_id IS NULL ORDER BY c.id LIMIT ?", (limit,)).fetchall()
+        except _OPERATIONAL_ERRORS:
+            # vec_chunks table does not exist (e.g. after clear_vectors()); treat
+            # every chunk as un-embedded.
+            rows = self.conn.execute(
+                "SELECT id, text FROM chunks ORDER BY id LIMIT ?", (limit,)).fetchall()
+        return [(r["id"], r["text"]) for r in rows]
+
+    def count_chunks_without_vectors(self):
+        """COUNT of chunks lacking a vector (no text materialized — for progress)."""
+        try:
+            return self.conn.execute(
+                "SELECT COUNT(*) FROM chunks c LEFT JOIN vec_chunks v "
+                "ON v.chunk_id = c.id WHERE v.chunk_id IS NULL").fetchone()[0]
+        except _OPERATIONAL_ERRORS:
+            return self.count_chunks()  # vec table missing -> everything is pending
+
+    def add_vector(self, chunk_id, embedding):
+        import sqlite_vec
+        self.conn.execute(
+            "INSERT INTO vec_chunks(chunk_id, embedding) VALUES(?, ?)",
+            (chunk_id, sqlite_vec.serialize_float32(list(embedding))))
+
+    def knn_search(self, embedding, k):
+        """Return [(chunk_id, message_id, distance)] nearest to `embedding`."""
+        import sqlite_vec
+        try:
+            rows = self.conn.execute(
+                "WITH knn AS ("
+                "  SELECT chunk_id, distance FROM vec_chunks "
+                "  WHERE embedding MATCH ? ORDER BY distance LIMIT ?) "
+                "SELECT knn.chunk_id AS chunk_id, c.message_id AS message_id, "
+                "       knn.distance AS distance "
+                "FROM knn JOIN chunks c ON c.id = knn.chunk_id ORDER BY knn.distance",
+                (sqlite_vec.serialize_float32(list(embedding)), k)).fetchall()
+        except _OPERATIONAL_ERRORS:
+            return []
+        return [(r["chunk_id"], r["message_id"], r["distance"]) for r in rows]
+
+    def search_fts_messages(self, query, k):
+        """BM25-ranked message ids for `query` (reuses the keyword FTS index)."""
+        match = _fts_query(query)
+        if not match:
+            return []
+        try:
+            rows = self.conn.execute(
+                "SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? "
+                "ORDER BY rank LIMIT ?", (match, k)).fetchall()
+        except _OPERATIONAL_ERRORS:
+            return []
+        return [r["rowid"] for r in rows]
+
+    def get_chunk_text(self, chunk_id):
+        row = self.conn.execute(
+            "SELECT text FROM chunks WHERE id=?", (chunk_id,)).fetchone()
+        return row["text"] if row else None
+
+    def clear_vectors(self):
+        """Drop all vectors (e.g. embed-model change); chunk text is preserved."""
+        self.conn.execute("DROP TABLE IF EXISTS vec_chunks")
+        self.conn.commit()
+
+    def embed_meta_set(self, model, dim, backend):
+        self.set_meta("embed_model", model)
+        self.set_meta("embed_dim", str(int(dim)))
+        self.set_meta("embed_backend", backend)
+        self.conn.commit()
+
+    def embed_meta_get(self):
+        model = self.get_meta("embed_model")
+        dim = self.get_meta("embed_dim")
+        backend = self.get_meta("embed_backend")
+        if model is None or dim is None:
+            return None
+        return (model, int(dim), backend)
+
     def list_labels(self):
         rows = self.conn.execute(
             "SELECT l.name AS name, COUNT(*) AS c FROM labels l "
@@ -226,7 +378,7 @@ class Store:
         params.extend([limit, offset])
         try:
             return self.conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
+        except _OPERATIONAL_ERRORS as exc:
             message = str(exc).lower()
             if "no such table" in message or "fts5" in message or "syntax error" in message:
                 return []
@@ -276,7 +428,7 @@ class Store:
         params.extend([limit, offset])
         try:
             return self.conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
+        except _OPERATIONAL_ERRORS as exc:
             message = str(exc).lower()
             if "no such table" in message or "fts5" in message or "syntax error" in message:
                 return []
@@ -296,7 +448,7 @@ class Store:
         params.append(limit)
         try:
             return self.conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
+        except _OPERATIONAL_ERRORS as exc:
             message = str(exc).lower()
             if "no such table" in message or "fts5" in message or "syntax error" in message:
                 return []

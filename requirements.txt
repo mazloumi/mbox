@@ -8,3 +8,9 @@ openpyxl==3.1.5
 xlrd==2.0.1
 olefile==0.47
 tnefparse==1.4.0
+
+# --- Assistant / semantic-search tiers (imported lazily; only loaded when enabled) ---
+sqlite-vec==0.1.9
+fastembed==0.7.4
+anthropic==0.109.0
+httpx==0.28.1

@@ -16,6 +16,12 @@ body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direct
 mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; }
 #app.folders-collapsed { grid-template-columns: 360px 1fr; }
 #app.folders-collapsed #labels { display: none; }
+#chat { display: none; }
+#app.chat-mode { display: block; }
+#app.chat-mode #labels,
+#app.chat-mode #list,
+#app.chat-mode #reader { display: none; }
+#app.chat-mode #chat { display: flex; flex-direction: column; height: 100%; padding: 1rem; overflow: hidden; min-height: 0; }
 #searchbar { padding: 10px; border-bottom: 1px solid #ddd; position: sticky; top: 0;
   background: #fff; z-index: 2; }
 #q { width: 100%; padding: 6px 8px; }
@@ -80,3 +86,13 @@ img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; cursor
   white-space: nowrap; }
 #reader-table th { position: sticky; top: 0; background: #f3f3f3; }
 #reader-table .csv-note { font-family: sans-serif; color: #777; padding: 6px 2px; }
+#chat-log { flex: 1; overflow-y: auto; }
+#chat-building { padding: .5rem; color: #888; font-style: italic; }
+.bubble { margin: .4rem 0; padding: .5rem .75rem; border-radius: 8px; max-width: 80%; white-space: pre-wrap; }
+.bubble.user { background: #e8f0fe; margin-left: auto; }
+.bubble.assistant { background: #f4f4f4; }
+.bubble .cite { font-size: .85em; text-decoration: none; background: #ddd; border-radius: 4px; padding: 0 4px; margin: 0 1px; }
+.bubble .err { color: #b00; }
+#chat-form { display: flex; gap: .5rem; padding-top: .5rem; }
+#chat-input { flex: 1; }
+#search-mode { white-space: nowrap; }
