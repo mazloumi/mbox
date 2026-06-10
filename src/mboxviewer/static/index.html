@@ -1,10 +1,22 @@
 <!doctype html>
-<html>
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>mbox viewer</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/vendor/pico.classless.min.css">
   <link rel="stylesheet" href="/static/style.css">
+  <script>
+    // Set theme before first paint to avoid a flash.
+    (function () {
+      try {
+        var t = localStorage.getItem("theme") ||
+          (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
 </head>
 <body>
   <header id="header">
@@ -14,6 +26,7 @@
       <button id="tab-files" type="button" class="tab" title="Browse attachments by type">Files</button>
       <button id="tab-ask" type="button" class="tab" title="Ask questions about your mail" hidden>Ask</button>
       <button id="archive-images" type="button" title="Download remote images for offline viewing">Archive remote images</button>
+      <button id="theme-toggle" type="button" title="Toggle dark mode" aria-label="Toggle dark mode">🌙</button>
     </span>
   </header>
   <div id="app">

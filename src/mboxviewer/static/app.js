@@ -655,6 +655,21 @@ applyCollapsed(_startCollapsed);
 // Reflect the default view (Folders) in the tab bar on load.
 (browseMode === "files" ? tabFiles : tabFolders).classList.add("active");
 
+// --- Dark mode toggle (initial theme is set by the inline <head> script) ---
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.textContent = theme === "dark" ? "☀️" : "🌙";
+    btn.title = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  }
+  try { localStorage.setItem("theme", theme); } catch (e) { /* ignore */ }
+}
+applyTheme(document.documentElement.getAttribute("data-theme") || "light");
+document.getElementById("theme-toggle").addEventListener("click", () => {
+  applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark");
+});
+
 // --- Keyboard shortcuts + arrow-key navigation between emails ---
 document.addEventListener("keydown", (e) => {
   const tag = (document.activeElement && document.activeElement.tagName) || "";
