@@ -81,6 +81,12 @@ function refreshSemanticState() {
         label.title = s.ready
           ? "Rank results by meaning using local AI (instead of keyword matching)"
           : semanticProgressText(s);
+        const status = document.getElementById("ss-status");
+        if (status) {
+          const pct = s.vectors_total ? Math.round(s.vectors_done / s.vectors_total * 100) : 0;
+          status.textContent = s.ready ? ""
+            : (s.state === "error" ? " · unavailable" : " · building " + pct + "%");
+        }
       }
       const building = document.getElementById("chat-building");
       if (building) {

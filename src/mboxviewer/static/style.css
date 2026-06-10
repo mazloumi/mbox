@@ -241,3 +241,7 @@ mark { background: #ffe08a; color: #1f2430; }
 #chat-form { align-items: center; }
 #chat-input { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; }
 #chat-form button { flex: 0 0 auto; width: auto; margin: 0; }
+
+/* Semantic Search: show the build state inline + dim while it's unavailable */
+#ss-status { color: var(--text-faint); font-style: italic; }
+#semantic-search-label:has(input:disabled) { opacity: .65; }
