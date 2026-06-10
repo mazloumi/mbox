@@ -345,11 +345,6 @@ function showOnlyPane(el) {
   }
 }
 
-function viewPdf(id, idx) {
-  showOnlyPane(readerPdf);
-  readerPdf.src = `/api/messages/${id}/attachments/${idx}?inline=1`;
-}
-
 function parseCsv(text) {
   const rows = []; let row = [], field = "", q = false;
   for (let i = 0; i < text.length; i++) {
@@ -453,6 +448,9 @@ async function openFile(mid, idx, filename, mime, size) {
     return;
   }
   if (m.startsWith("image/")) { showOnlyPane(readerImage); readerImage.src = inlineUrl; return; }
+  if (m === "application/pdf" || name.endsWith(".pdf")) {
+    showOnlyPane(readerPdf); readerPdf.src = inlineUrl; return;   // render the PDF inline
+  }
   const media = mediaInfo(m, name);
   if (media) {
     const pane = media.kind === "audio" ? readerAudio : readerVideo;
@@ -544,7 +542,9 @@ async function openFile(mid, idx, filename, mime, size) {
 }
 
 function openEmailFromFile(mid) {
-  setMode("folders");
+  // In the Ask split, stay in the chat (the email shows in the right pane); from the
+  // Files tab, switch to the Folders view to show the email there.
+  if (!appEl.classList.contains("chat-reading")) setMode("folders");
   openMessage(mid);
 }
 
@@ -558,12 +558,18 @@ async function openMessage(id, allowRemote = false) {
     readerHeader.innerHTML = `<div class="subject">${escapeHtml(m.subject || "(no subject)")}</div>
       <div class="meta">From: ${escapeHtml(m.from || "")}<br>To: ${escapeHtml(m.to || "")}<br>${escapeHtml(m.date || "")}</div>
       ${remoteBtn}${emlLink}`;
-    readerAtt.innerHTML = (m.attachments || []).map(a => {
+    // Each attachment: download + a View/Play button that opens the right viewer/player
+    // (same as the Files tab). Listeners are attached below so email-controlled filenames
+    // never land in an HTML attribute (the main document is not sandboxed).
+    readerAtt.innerHTML = (m.attachments || []).map((a, i) => {
       const dl = `<a href="/api/messages/${id}/attachments/${a.idx}" download>${escapeHtml(a.filename)} (${escapeHtml(String(a.size))}b)</a>`;
-      const view = a.mime === "application/pdf"
-        ? ` <button type="button" class="view-pdf" onclick="viewPdf(${id}, ${a.idx})">View</button>` : "";
-      return `<span class="att">${dl}${view}</span>`;
+      const label = mediaInfo((a.mime || "").toLowerCase(), (a.filename || "").toLowerCase()) ? "Play" : "View";
+      return `<span class="att">${dl} <button type="button" class="view-att" data-i="${i}">${label}</button></span>`;
     }).join("");
+    readerAtt.querySelectorAll("button.view-att").forEach(btn => {
+      const a = m.attachments[parseInt(btn.dataset.i, 10)];
+      btn.onclick = () => openFile(id, a.idx, a.filename, a.mime, a.size);
+    });
     // Blocked remote images have an empty src (the backend blanks them); hide them
     // so the reader shows text instead of broken-image icons. "Load remote images"
     // re-fetches with real (non-empty) src values, which this rule does not match.
