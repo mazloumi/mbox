@@ -95,4 +95,6 @@ def test_embed_rebuilds_on_model_change(tmp_path, sample_mbox):
     embed_index.build_embeddings(settings, store, FakeEmbedder6(), EmbedStatus())
     assert store.embed_meta_get() == ("fake6", 6, "local")
     assert store.chunks_without_vectors(100) == []
-    assert isinstance(store.knn_search([1.0] * 6, 1), list)  # works at the new dim
+    hits = store.knn_search([1.0] * 6, 1)
+    assert len(hits) >= 1                 # rebuilt at dim 6 -> query returns a real hit
+    assert hits[0][1] is not None         # message_id mapped (sanity)
