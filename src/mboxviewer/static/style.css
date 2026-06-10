@@ -222,3 +222,22 @@ body { margin: 0; padding: 0; background: var(--app-bg); color: var(--text); }
 /* Small controls cohere */
 #sidebar-toggle { border-color: var(--line); }
 mark { background: #ffe08a; color: #1f2430; }
+
+/* --- polish fixes (reported) --- */
+/* Pico caps header/footer landmarks at ~950px — make the app full-bleed */
+#header, #footer, #labels, #list, #reader, #chat { max-width: none; }
+
+/* Consistent height between the search field and the filter controls
+   (Pico sets a fixed input height via calc; height:auto lets padding define it) */
+#q { font-size: 13px; padding: 7px 10px; height: auto; }
+#filters input, #filters select { font-size: 13px; padding: 6px 8px; height: auto; }
+
+/* The two checkbox controls match: same label size (→ same Pico checkbox size), casing, color */
+#semantic-search-label, #filters label {
+  font-size: 12.5px; color: var(--text-dim); display: inline-flex; align-items: center;
+  gap: 5px; white-space: nowrap; text-transform: none; font-weight: 400; }
+
+/* Chat row: the input grows, Send is content-width (undo Pico's full-width input/button) */
+#chat-form { align-items: center; }
+#chat-input { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; }
+#chat-form button { flex: 0 0 auto; width: auto; margin: 0; }
