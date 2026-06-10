@@ -591,9 +591,13 @@ async function loadIntegrity() {
 loadIntegrity();
 
 // --- Folders/Files mode tabs + collapse (persisted) ---
-function toggleCollapse() {
-  const collapsed = !appEl.classList.contains("folders-collapsed");
+function applyCollapsed(collapsed) {
   appEl.classList.toggle("folders-collapsed", collapsed);
+  const btn = document.getElementById("sidebar-toggle");
+  if (btn) {
+    btn.textContent = collapsed ? "»" : "«";
+    btn.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  }
   try { localStorage.setItem("foldersCollapsed", collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
 }
 
@@ -606,7 +610,6 @@ function setMode(mode) {
   tabFiles.classList.toggle("active", mode === "files");
   currentQuery = "";
   q.value = "";
-  appEl.classList.remove("folders-collapsed");
   readerHeader.innerHTML = "";
   readerAtt.innerHTML = "";
   showOnlyPane(mode === "files" ? null : readerBody);
@@ -629,17 +632,25 @@ document.getElementById("tab-ask").addEventListener("click", () => {
   document.getElementById("chat-input").focus();
 });
 
+// Tabs only switch views; collapse is a separate control (below).
 tabFolders.addEventListener("click", () => {
   exitChat();
-  if (browseMode !== "folders") setMode("folders"); else toggleCollapse();
+  if (browseMode !== "folders") setMode("folders");
+  else { tabFolders.classList.add("active"); tabFiles.classList.remove("active"); }
 });
 tabFiles.addEventListener("click", () => {
   exitChat();
-  if (browseMode !== "files") setMode("files"); else toggleCollapse();
+  if (browseMode !== "files") setMode("files");
+  else { tabFiles.classList.add("active"); tabFolders.classList.remove("active"); }
 });
-try {
-  if (localStorage.getItem("foldersCollapsed") === "1") appEl.classList.add("folders-collapsed");
-} catch (e) { /* ignore */ }
+
+// Dedicated collapse/expand control for the left sidebar (persisted, restored on load).
+document.getElementById("sidebar-toggle").addEventListener("click", () => {
+  applyCollapsed(!appEl.classList.contains("folders-collapsed"));
+});
+let _startCollapsed = false;
+try { _startCollapsed = localStorage.getItem("foldersCollapsed") === "1"; } catch (e) { /* ignore */ }
+applyCollapsed(_startCollapsed);
 
 // --- Keyboard shortcuts + arrow-key navigation between emails ---
 document.addEventListener("keydown", (e) => {

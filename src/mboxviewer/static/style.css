@@ -98,3 +98,6 @@ img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; cursor
 #semantic-search-label { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #444; }
 #semantic-search-label input { cursor: pointer; }
 #semantic-search-label input:disabled { cursor: not-allowed; }
+#sidebar-toggle { border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer;
+  padding: 2px 7px; font-size: 14px; line-height: 1; color: #555; }
+#sidebar-toggle:hover { background: #f0f0f0; }
