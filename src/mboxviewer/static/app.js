@@ -652,6 +652,9 @@ let _startCollapsed = false;
 try { _startCollapsed = localStorage.getItem("foldersCollapsed") === "1"; } catch (e) { /* ignore */ }
 applyCollapsed(_startCollapsed);
 
+// Reflect the default view (Folders) in the tab bar on load.
+(browseMode === "files" ? tabFiles : tabFolders).classList.add("active");
+
 // --- Keyboard shortcuts + arrow-key navigation between emails ---
 document.addEventListener("keydown", (e) => {
   const tag = (document.activeElement && document.activeElement.tagName) || "";
