@@ -99,16 +99,20 @@ def make_anthropic_generate(client, model: str, tools: Optional[List[Dict]] = No
     feed the result back, and continue until the model answers (or `max_rounds`)."""
     def generate(system: str, messages: List[Dict]) -> Iterator[str]:
         convo = list(messages)
-        for _ in range(max_rounds):
+        for round_no in range(max_rounds):
             kwargs = dict(model=model, max_tokens=1024, system=system, messages=convo)
             if tools:
                 kwargs["tools"] = tools
+            emitted = False
             with client.messages.stream(**kwargs) as stream:
                 for text in stream.text_stream:
+                    emitted = emitted or bool(text)
                     yield text
                 final = stream.get_final_message()
             if not run_tool or getattr(final, "stop_reason", None) != "tool_use":
                 return
+            if emitted:   # separate this turn's narration from the next turn's text
+                yield "\n\n"
             convo.append({"role": "assistant", "content": final.content})
             results = []
             for block in final.content:

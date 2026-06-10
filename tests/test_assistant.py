@@ -118,7 +118,7 @@ def test_make_anthropic_generate_runs_tool_then_answers():
         client, "m", tools=[assistant.ATTACHMENT_TOOL], run_tool=run_tool)
     out = "".join(gen("SYS", [{"role": "user", "content": "how many videos?"}]))
 
-    assert out == "Let me check. You have 2 videos [#5]."
+    assert out == "Let me check. \n\nYou have 2 videos [#5]."   # narration separated from answer
     assert ran == {"name": "query_attachments", "input": {"category": "Media"}}
     assert "tools" in client.messages.calls[0]
     # the tool result was fed back on the second turn
