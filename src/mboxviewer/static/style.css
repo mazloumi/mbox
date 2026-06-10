@@ -101,3 +101,124 @@ img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; cursor
 #sidebar-toggle { border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer;
   padding: 2px 7px; font-size: 14px; line-height: 1; color: #555; }
 #sidebar-toggle:hover { background: #f0f0f0; }
+
+/* ============================================================
+   Theme refresh + dark mode (prototype v2). Loads last so it
+   refines/overrides both Pico and the base rules above.
+   ============================================================ */
+:root {
+  --pico-font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pico-border-radius: 8px;
+  --pico-form-element-spacing-vertical: .4rem;
+  --pico-form-element-spacing-horizontal: .6rem;
+  --pico-line-height: 1.45;
+  /* semantic tokens — light */
+  --surface: #ffffff;
+  --app-bg: #f6f7f9;
+  --line: #e7e9ee;
+  --text: #1f2430;
+  --text-dim: #5b6370;
+  --text-faint: #9aa1ad;
+  --hover: #f2f4f8;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #e9f0ff;
+  --accent-border: #c5d8ff;
+}
+[data-theme="dark"] {
+  --surface: #1a1e26;
+  --app-bg: #0f1218;
+  --line: #2a3039;
+  --text: #e7e9ee;
+  --text-dim: #aab1bd;
+  --text-faint: #79818f;
+  --hover: #232a35;
+  --accent: #6f9bff;
+  --accent-hover: #8aacff;
+  --accent-soft: #1d2942;
+  --accent-border: #33446b;
+  color-scheme: dark;
+}
+/* Drive Pico's primary (buttons, focus, inputs) from our accent in both modes */
+:root, [data-theme] {
+  --pico-primary: var(--accent);
+  --pico-primary-hover: var(--accent-hover);
+  --pico-primary-background: var(--accent);
+  --pico-primary-hover-background: var(--accent-hover);
+}
+
+/* App shell — full-bleed, neutralize Pico landmark spacing */
+body { margin: 0; padding: 0; background: var(--app-bg); color: var(--text); }
+#header, #footer, #labels, #list, #reader, #chat, #app, #app > * { margin: 0; }
+#app { gap: 0; background: var(--app-bg); }
+
+/* Header + footer */
+#header { background: var(--surface); border-bottom: 1px solid var(--line); padding: 8px 16px; }
+#logo { font-size: 15px; letter-spacing: -.01em; font-weight: 700; color: var(--text); }
+#footer { background: var(--surface); border-top: 1px solid var(--line); color: var(--text-dim); }
+#footer span:not(:empty) ~ span:not(:empty)::before { color: var(--text-faint); }
+
+/* Tabs + chrome buttons → pill bar */
+.tab, #archive-images, #theme-toggle {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 12px; color: var(--text-dim); font-weight: 500; font-size: 12.5px;
+  transition: background .15s, border-color .15s, color .15s; }
+.tab:hover, #archive-images:hover, #theme-toggle:hover { background: var(--hover); color: var(--text); }
+.tab.active { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent); font-weight: 600; }
+#theme-toggle { padding: 4px 9px; line-height: 1; }
+
+/* Panels */
+#labels, #list { border-right: 1px solid var(--line); background: var(--surface); }
+#reader { background: var(--surface); }
+#labels h2 { color: var(--text-faint); letter-spacing: .04em; }
+.count { color: var(--text-faint); }
+
+/* Search bar — clean single-row flex layout (toggle · search · semantic), filters wrap below */
+#searchbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+#sidebar-toggle { flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface);
+  color: var(--text-dim); border-radius: 8px; padding: 4px 9px; }
+#sidebar-toggle:hover { background: var(--hover); color: var(--text); }
+#q { flex: 1 1 180px; min-width: 120px; margin: 0; border-radius: 8px;
+  font-size: 14px; padding: 8px 11px; background-image: none; }
+#semantic-search-label { flex: 0 0 auto; color: var(--text-dim); }
+#filters { flex-basis: 100%; margin: 0; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px; color: var(--text-dim); }
+#filters input, #filters select { width: auto; margin: 0; height: auto; border-radius: 6px;
+  font-size: 12px; padding: 4px 6px; background-image: none; }
+#filters select { padding-right: 1.6rem; }
+#filters input#filter-sender { flex: 1; min-width: 80px; }
+#download-all { flex-basis: 100%; margin: 0; }
+
+/* List rows */
+#label-list li, #message-list li { border-bottom: 1px solid var(--line); }
+#label-list li:hover, #message-list li:hover { background: var(--hover); }
+#label-list li.active, #message-list li.active {
+  background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.subject { color: var(--text); }
+.meta { color: var(--text-dim); }
+.preview { color: var(--text-faint); }
+
+/* Reader */
+#reader-header { border-bottom: 1px solid var(--line); color: var(--text); }
+/* Email/PDF content renders as the sender intended (light card) in both themes,
+   so dark mode never makes message bodies low-contrast. */
+#reader-body, #reader-pdf { background: #fff; }
+#reader-text { border-top: 1px solid var(--line); color: var(--text); }
+#reader-table th, #reader-table td { border-color: var(--line); }
+#reader-table th { background: var(--hover); }
+#reader-attachments a, .eml-link, #load-remote, #download-all {
+  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-border);
+  border-radius: 8px; text-decoration: none; }
+
+/* Chat */
+#chat-building { color: var(--text-dim); }
+.bubble { box-shadow: 0 1px 2px rgba(0,0,0,.06); border-radius: 14px; }
+.bubble.user { background: var(--accent); color: #fff; }
+.bubble.user .cite { background: rgba(255,255,255,.25); color: #fff; }
+.bubble.assistant { background: var(--surface); border: 1px solid var(--line); color: var(--text); }
+.bubble.assistant .cite { background: var(--hover); color: var(--accent); }
+
+/* Small controls cohere */
+#sidebar-toggle { border-color: var(--line); }
+mark { background: #ffe08a; color: #1f2430; }
