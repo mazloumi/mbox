@@ -455,6 +455,10 @@ async function openFile(mid, idx, filename, mime, size) {
   if (media) {
     const pane = media.kind === "audio" ? readerAudio : readerVideo;
     showOnlyPane(pane);
+    // Start playing as soon as the source is ready. Set autoplay BEFORE assigning src so
+    // it also covers the blob path, where the `await` below would otherwise consume the
+    // click's user-gesture and get an explicit play() blocked by the autoplay policy.
+    pane.autoplay = true;
     pane.onerror = () => {
       showOnlyPane(readerText);
       readerText.textContent = "This file couldn't be played in the browser. Use the Download link above.";
@@ -883,15 +887,18 @@ document.getElementById("chat-form").addEventListener("submit", async (e) => {
     }
   }
   if (text) chatHistory.push({ role: "assistant", content: text });
-  answerDiv.querySelectorAll("a.cite").forEach(a => {
-    a.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      openCitedMessage(parseInt(a.dataset.id, 10));
-    });
-  });
 });
 
-// A citation click opens the email in a reader pane to the LEFT of the chat
+// Delegated so citations are clickable AS they stream in (the chips are recreated on
+// every token, so per-element handlers would only catch the final render).
+document.getElementById("chat-log").addEventListener("click", (ev) => {
+  const a = ev.target.closest("a.cite");
+  if (!a) return;
+  ev.preventDefault();
+  openCitedMessage(parseInt(a.dataset.id, 10));
+});
+
+// A citation click opens the cited email in the reader pane beside the chat
 // (chat-reading splits the Ask view). Attachments then use the normal viewers/players.
 function openCitedMessage(id) {
   appEl.classList.add("chat-reading");
