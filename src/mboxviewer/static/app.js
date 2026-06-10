@@ -313,7 +313,9 @@ function showOnlyPane(el) {
     p.hidden = true;
     if (p === readerAudio || p === readerVideo) {
       try { p.pause(); } catch (e) { /* ignore */ }
+      const old = p.getAttribute("src");
       p.removeAttribute("src"); p.load();
+      if (old && old.startsWith("blob:")) URL.revokeObjectURL(old);
     } else if (p === readerPdf || p === readerImage) {
       p.removeAttribute("src");
     } else if (p === readerBody) {
@@ -382,6 +384,31 @@ function isUnplayable(m, name) {
   return _UNPLAYABLE_MIMES.has(m) || /\.(wma|wmv|asf)$/.test(name);
 }
 
+// Media the server already serves inline with a correct type → stream directly.
+const _SAFE_INLINE_MEDIA = new Set([
+  "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/ogg", "audio/wav", "audio/webm",
+  "video/mp4", "video/webm", "video/ogg", "video/quicktime",
+]);
+// Canonical, browser-playable MIME per extension — used to rescue files stored with a
+// generic (application/octet-stream) or non-standard (audio/m4a, video/mpeg4) type.
+const _AUDIO_EXT_MIME = {
+  m4a: "audio/mp4", mp3: "audio/mpeg", aac: "audio/aac", oga: "audio/ogg",
+  ogg: "audio/ogg", opus: "audio/ogg", wav: "audio/wav", weba: "audio/webm",
+};
+const _VIDEO_EXT_MIME = {
+  mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", ogv: "video/ogg",
+};
+// Decide whether a file is playable audio/video — by MIME prefix OR file extension —
+// and the canonical type to play it as. Returns null for non-media.
+function mediaInfo(m, name) {
+  const ext = name.includes(".") ? name.split(".").pop() : "";
+  if (m.startsWith("audio/")) return { kind: "audio", type: _AUDIO_EXT_MIME[ext] || m };
+  if (m.startsWith("video/")) return { kind: "video", type: _VIDEO_EXT_MIME[ext] || m };
+  if (_AUDIO_EXT_MIME[ext]) return { kind: "audio", type: _AUDIO_EXT_MIME[ext] };
+  if (_VIDEO_EXT_MIME[ext]) return { kind: "video", type: _VIDEO_EXT_MIME[ext] };
+  return null;
+}
+
 const _ARCHIVE_MIMES = new Set([
   "application/zip", "application/x-zip-compressed", "application/java-archive",
   "application/gzip", "application/x-gzip", "application/x-tar", "application/x-gtar",
@@ -409,14 +436,28 @@ async function openFile(mid, idx, filename, mime, size) {
     return;
   }
   if (m.startsWith("image/")) { showOnlyPane(readerImage); readerImage.src = inlineUrl; return; }
-  if (m.startsWith("audio/") || m.startsWith("video/")) {
-    const pane = m.startsWith("audio/") ? readerAudio : readerVideo;
+  const media = mediaInfo(m, name);
+  if (media) {
+    const pane = media.kind === "audio" ? readerAudio : readerVideo;
     showOnlyPane(pane);
     pane.onerror = () => {
       showOnlyPane(readerText);
       readerText.textContent = "This file couldn't be played in the browser. Use the Download link above.";
     };
-    pane.src = inlineUrl;
+    const prev = pane.getAttribute("src");
+    if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+    if (_SAFE_INLINE_MEDIA.has(m)) {
+      pane.src = inlineUrl;                                  // server serves it inline correctly
+    } else {
+      // Generic/non-standard MIME (e.g. application/octet-stream): fetch the bytes and play
+      // them through a blob forced to the correct media type (bypasses the server's type).
+      try {
+        const buf = await (await fetch(`/api/messages/${mid}/attachments/${idx}`)).arrayBuffer();
+        if (currentOpenId !== mid) return;                  // user switched files mid-fetch
+        pane.src = URL.createObjectURL(new Blob([buf], { type: media.type }));
+      } catch (e) { pane.onerror(); return; }
+    }
+    pane.play && pane.play().catch(() => { /* autoplay blocked → user can press play */ });
     return;
   }
   if (m === "text/csv" || name.endsWith(".csv")) {
