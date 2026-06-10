@@ -238,12 +238,46 @@ ANTHROPIC_API_KEY=sk-ant-...
   that is roughly **1–5 cents per question**. Monitor your Anthropic usage dashboard if
   you ask many questions.
 
-### GPU-accelerated embeddings (optional)
+### Build performance — CPU vs GPU (and why CPU is the default)
 
-If you have a GPU on the host and Ollama running, set `EMBED_BACKEND=ollama` (and
-optionally `OLLAMA_URL` / `EMBED_MODEL`) to offload embedding inference to the host GPU
-instead of the in-container CPU. This speeds up the one-time vector index build; it has
-no effect on query results.
+The semantic index builds in two passes, **once**; after that, queries are instant (each
+query just embeds a single short string in milliseconds). The two passes:
+
+- **Chunking** — read each message, extract text from bodies + attachments, and window it.
+  **CPU/IO only** — the GPU can't accelerate this, and it's identical regardless of
+  `EMBED_BACKEND`.
+- **Embedding** — turn each chunk into a vector. This is the *only* part `EMBED_BACKEND`
+  affects (`local` = in-container CPU via fastembed; `ollama` = host GPU).
+
+Measured on a **MacBook Air M4 / 16 GB** (Docker) on a 1,500-chunk sample, extrapolated to a
+real **54,183-message / 108,082-chunk** mailbox:
+
+| Pass | Backend | Throughput | Full build |
+|---|---|---|---|
+| Chunking | CPU/IO (in-container) | ~257 chunks/s | **~7 min** |
+| Embedding | **`local` — fastembed `bge-small`** (default) | ~9 chunks/s | **~3.1 h** |
+| Embedding | `ollama` — `nomic-embed-text` (host GPU) | ~15 chunks/s | ~1.9 h |
+| Embedding | `ollama` — `all-minilm` (host GPU) | unreliable¹ | — |
+
+¹ `all-minilm` (the only common 384-dim Ollama model) has a 256-token limit and 500-errored
+on ~1/3 of real chunks — not viable for these chunk sizes.
+
+**Takeaways:**
+- The one-time embedding pass dominates (~3 h); chunking is minor (~7 min).
+- **Docker is not the bottleneck** — host-native CPU measured the same ~8–9 chunks/s.
+- **The GPU (Ollama) is only ~1.6× faster** in practice, and only with `nomic-embed-text` — a
+  *bigger, 768-dim* model that isn't interchangeable with the default `bge-small` index
+  (changing the embed model/backend triggers a full re-embed). Per-request vs. batched made
+  no difference — it's compute-bound, not I/O-bound.
+- **The embedding backend is needed at query time too:** every search/question embeds its
+  query with the configured backend, which must match the stored vectors. Build with Ollama
+  → Ollama must stay running for queries. Build in-container (CPU) → the app is fully
+  self-contained.
+
+**Recommendation: keep the default `local` (in-container CPU).** Pay the one-time ~3 h build
+once, then get instant, self-contained queries with no extra moving parts. Use
+`EMBED_BACKEND=ollama` only if you re-index frequently *and* accept the operational
+complexity plus a non-default embedding model.
 
 ### Privacy & security note
 
