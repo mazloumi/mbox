@@ -92,3 +92,26 @@ def category_for(mime, filename):
         return cat
     ext = os.path.splitext(filename or "")[1].lower()
     return _EXT_CATEGORY.get(ext, "Other")
+
+
+_AUDIO_EXTS = frozenset(".mp3 .m4a .wav .aac .ogg .oga .flac .opus .wma".split())
+_VIDEO_EXTS = frozenset(".mp4 .m4v .mov .avi .wmv .mkv .webm .mpg .mpeg .3gp".split())
+_FINE_LABEL = {
+    "Documents": "document", "Spreadsheets": "spreadsheet",
+    "Presentations": "presentation", "Images": "image", "Archives": "archive",
+    "Enclosures": "enclosure", "Signatures": "signature", "Calendar": "calendar",
+    "Contacts": "contact", "Media": "media", "Other": "file",
+}
+
+
+def fine_type(mime, filename):
+    """A singular, user-facing type label. Splits the 'Media' category into
+    'audio' vs 'video' (the Files tab lumps them together); everything else maps
+    to a friendly singular of its category."""
+    m = (mime or "").lower().split(";")[0].strip()
+    ext = os.path.splitext((filename or "").lower())[1]
+    if m.startswith("audio/") or ext in _AUDIO_EXTS:
+        return "audio"
+    if m.startswith("video/") or ext in _VIDEO_EXTS:
+        return "video"
+    return _FINE_LABEL.get(category_for(mime, filename), "file")

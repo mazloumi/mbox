@@ -58,17 +58,25 @@ def test_iter_answer_no_snippets_says_not_found():
     assert "no matching email" in seen["last"].lower()
 
 
-def test_make_anthropic_generate_uses_streaming():
-    class FakeStream:
-        text_stream = ["a", "b", "c"]
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+class _FakeStream:
+    def __init__(self, texts, final): self.text_stream = list(texts); self._final = final
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def get_final_message(self): return self._final
 
+
+class _Final:
+    def __init__(self, stop_reason="end_turn", content=None):
+        self.stop_reason = stop_reason
+        self.content = content or []
+
+
+def test_make_anthropic_generate_uses_streaming():
     class FakeMessages:
         def __init__(self): self.kwargs = None
         def stream(self, **kwargs):
             self.kwargs = kwargs
-            return FakeStream()
+            return _FakeStream(["a", "b", "c"], _Final("end_turn"))
 
     class FakeClient:
         def __init__(self): self.messages = FakeMessages()
@@ -80,3 +88,42 @@ def test_make_anthropic_generate_uses_streaming():
     assert client.messages.kwargs["model"] == "claude-sonnet-4-6"
     assert client.messages.kwargs["system"] == "SYS"
     assert client.messages.kwargs["max_tokens"] == 1024
+    assert "tools" not in client.messages.kwargs   # no tools passed -> plain call
+
+
+def test_make_anthropic_generate_runs_tool_then_answers():
+    class ToolBlock:
+        type = "tool_use"; id = "tu_1"; name = "query_attachments"
+        input = {"category": "Media"}
+
+    class FakeMessages:
+        def __init__(self): self.calls = []
+        def stream(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:   # first turn: narrate, then call the tool
+                return _FakeStream(["Let me check. "],
+                                   _Final("tool_use", [ToolBlock()]))
+            return _FakeStream(["You have 2 videos [#5]."], _Final("end_turn"))
+
+    class FakeClient:
+        def __init__(self): self.messages = FakeMessages()
+
+    ran = {}
+    def run_tool(name, inp):
+        ran["name"] = name; ran["input"] = inp
+        return '{"total_matches": 2}'
+
+    client = FakeClient()
+    gen = assistant.make_anthropic_generate(
+        client, "m", tools=[assistant.ATTACHMENT_TOOL], run_tool=run_tool)
+    out = "".join(gen("SYS", [{"role": "user", "content": "how many videos?"}]))
+
+    assert out == "Let me check. You have 2 videos [#5]."
+    assert ran == {"name": "query_attachments", "input": {"category": "Media"}}
+    assert "tools" in client.messages.calls[0]
+    # the tool result was fed back on the second turn
+    second = client.messages.calls[1]["messages"]
+    assert second[-1]["role"] == "user"
+    tr = second[-1]["content"][0]
+    assert tr["type"] == "tool_result" and tr["tool_use_id"] == "tu_1"
+    assert tr["content"] == '{"total_matches": 2}'

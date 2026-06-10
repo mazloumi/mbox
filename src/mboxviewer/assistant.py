@@ -1,18 +1,63 @@
 """Assistant tier: assemble a grounded prompt from retrieved snippets and stream
 a cited answer from Claude. The SDK call is isolated in make_anthropic_generate so
 the rest is pure and testable without a network."""
-from typing import Callable, Dict, Iterator, List
+from typing import Callable, Dict, Iterator, List, Optional
 
 from .retrieve import Snippet
 
 SYSTEM_PROMPT = (
     "You are an assistant answering questions about the user's own email archive. "
-    "Answer ONLY from the email context provided in the user's message. "
-    "Cite every claim inline as [#<id>], where <id> is the integer message id shown "
-    "for each snippet (e.g. [#42]); use only ids present in the context. "
-    "If the answer is not in the provided email, say so plainly rather than guessing. "
-    "Be concise."
+    "Answer ONLY from the email context provided in the user's message and from the "
+    "results of the query_attachments tool. "
+    "For any question about which files or attachments exist — to list, count, or find "
+    "audio, video, images, documents, spreadsheets, etc. — use the query_attachments "
+    "tool rather than relying on the snippets, which cover only a few messages. "
+    "Cite every claim inline as [#<id>], where <id> is the integer message id shown for "
+    "each snippet or returned by the tool (e.g. [#42]); use only ids you have seen. "
+    "If the answer is not in the provided email or tool results, say so plainly rather "
+    "than guessing. Be concise."
 )
+
+# Tool: lets Claude query the attachment catalog directly (the same data the Files
+# tab reads), so file questions match the Files tab instead of relying on text search.
+ATTACHMENT_TOOL = {
+    "name": "query_attachments",
+    "description": (
+        "Query the user's complete attachment catalog (every file attached to any email) "
+        "by category, filename, and/or sender. Use this for any question about which files "
+        "exist — to list, count, or locate audio, video, images, documents, spreadsheets, "
+        "and so on. Returns the total number of matches, a 'type_counts' breakdown of the "
+        "full match set by type (e.g. how many are audio vs video — use this for exact "
+        "counts, not the sample), and a sample of files, each with its message id (cite as "
+        "[#id]), filename, type, size, subject, sender, and date."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": ["Documents", "Spreadsheets", "Presentations", "Images",
+                         "Archives", "Enclosures", "Signatures", "Calendar",
+                         "Contacts", "Media", "Other"],
+                "description": ("File category. 'Media' covers BOTH audio and video files "
+                                "(check each returned file's 'type' to tell them apart). "
+                                "Omit to search across all categories."),
+            },
+            "filename_contains": {
+                "type": "string",
+                "description": "Case-insensitive substring to match in the filename.",
+            },
+            "sender_contains": {
+                "type": "string",
+                "description": "Case-insensitive substring to match in the sender (From).",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max files to return in the sample (default 50, max 200).",
+            },
+        },
+    },
+}
 
 
 def build_context_block(snippets: List[Snippet]) -> str:
@@ -44,11 +89,31 @@ def iter_answer(generate: Callable[[str, List[Dict]], Iterator[str]],
         yield chunk
 
 
-def make_anthropic_generate(client, model: str):
-    """Wrap an anthropic client into a generate(system, messages) -> iterator[str]."""
+def make_anthropic_generate(client, model: str, tools: Optional[List[Dict]] = None,
+                            run_tool: Optional[Callable[[str, Dict], str]] = None,
+                            max_rounds: int = 6):
+    """Wrap an anthropic client into a generate(system, messages) -> iterator[str].
+
+    When `tools` and `run_tool` are given, drive a streaming tool-use loop: each
+    turn streams its text; if it ends in a tool call, run `run_tool(name, input)`,
+    feed the result back, and continue until the model answers (or `max_rounds`)."""
     def generate(system: str, messages: List[Dict]) -> Iterator[str]:
-        with client.messages.stream(
-                model=model, max_tokens=1024, system=system, messages=messages) as stream:
-            for text in stream.text_stream:
-                yield text
+        convo = list(messages)
+        for _ in range(max_rounds):
+            kwargs = dict(model=model, max_tokens=1024, system=system, messages=convo)
+            if tools:
+                kwargs["tools"] = tools
+            with client.messages.stream(**kwargs) as stream:
+                for text in stream.text_stream:
+                    yield text
+                final = stream.get_final_message()
+            if not run_tool or getattr(final, "stop_reason", None) != "tool_use":
+                return
+            convo.append({"role": "assistant", "content": final.content})
+            results = []
+            for block in final.content:
+                if getattr(block, "type", None) == "tool_use":
+                    results.append({"type": "tool_result", "tool_use_id": block.id,
+                                    "content": run_tool(block.name, block.input)})
+            convo.append({"role": "user", "content": results})
     return generate
