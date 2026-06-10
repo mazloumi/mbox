@@ -37,6 +37,15 @@ type), via tabs in the header.
 - **Schema-version guard** — a code change that needs a re-index triggers it automatically
 - **Keyboard shortcuts:** `/` focus search · `j`/`k` (or ↑/↓) next/prev · `Esc` blur search
 
+**Optional AI — off by default, opt-in (see [AI features](#ai-features-optional))**
+- **Local semantic search** — find messages by *meaning*, not exact keywords. Runs fully
+  on-device (CPU), no API key, nothing leaves the machine
+- **Conversational assistant** — an *Ask* tab (Claude-backed) for multi-turn questions about
+  people, relationships, timelines, and your files. Answers are **cited**, the citations open
+  the source email/attachment in a side pane, and a built-in catalog tool answers file
+  questions ("how many audio files?", "list every video") with counts that match the Files
+  tab. Requires your own Anthropic API key; only retrieved snippets are sent
+
 ## ⚠️ Security & intended use — read this first
 
 This is a **single-user, local-only** tool. It has **no authentication and no HTTPS**, and
@@ -227,16 +236,27 @@ ASSISTANT_ENABLED=1
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-- Adds an **Ask tab** in the reader pane with a multi-turn chat interface.
-- Answers are **cited** — each response links to the specific messages it drew on.
-- Enabling the assistant implies `SEMANTIC_SEARCH=1` (the vector index is used to
-  retrieve relevant snippets before each answer).
+- Adds an **Ask tab** (it becomes the default view when enabled) with a **multi-turn chat**
+  over your whole archive — ask about people, relationships, timelines, and patterns, and
+  follow up conversationally.
+- **Markdown answers with clickable citations.** Every claim links to the message(s) it came
+  from as `[#id]` chips — clickable **even while the answer is still streaming**. Click one and
+  that email opens in a pane beside the chat; for a file-centric email (audio/video/PDF/doc)
+  the **player/viewer opens and plays automatically**, with a link back to the message.
+- **Knows your files, not just your text.** A built-in attachment-catalog tool lets the
+  assistant answer questions like *"how many audio files do I have?"* or *"list every video"*
+  with exact counts and lists that **match the Files tab** — including audio/video/image files
+  that the text index can't see.
+- Enabling the assistant implies `SEMANTIC_SEARCH=1` (the vector index retrieves relevant
+  snippets before each answer; the catalog tool handles file questions directly).
 - **Only retrieved snippets are sent to Anthropic** — the full mailbox, raw mbox bytes,
   and embeddings never leave the machine.
+- The app **renames itself by tier** in the header and browser title — *mbox viewer* →
+  *mbox semantic search* → *mbox assistant* — so it reflects what's enabled.
 - Configurable model via `ASSISTANT_MODEL` (default `claude-sonnet-4-6`).
 - **Rough cost:** a typical question retrieves 5–20 k input tokens. At Sonnet pricing
-  that is roughly **1–5 cents per question**. Monitor your Anthropic usage dashboard if
-  you ask many questions.
+  that is roughly **1–5 cents per question** (a long file listing that returns many rows
+  costs a bit more). Monitor your Anthropic usage dashboard if you ask many questions.
 
 ### Build performance — CPU vs GPU (and why CPU is the default)
 
