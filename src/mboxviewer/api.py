@@ -92,6 +92,17 @@ def _content_disposition(filename, inline=False):
 
 def create_app(settings, index_in_background=True):
     app = FastAPI(title="mbox viewer")
+
+    @app.middleware("http")
+    async def _revalidate_static(request, call_next):
+        # Make the browser revalidate static assets (via ETag) rather than caching
+        # them blindly, so UI updates land without needing a hard refresh.
+        resp = await call_next(request)
+        path = request.url.path
+        if path == "/" or path == "/favicon.ico" or path.startswith("/static"):
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     store = Store(settings.index_path, enable_vectors=settings.semantic_active())
     # create_schema() must run here, synchronously, BEFORE the indexer thread is
     # spawned below: index_is_current() and the first request handlers query tables

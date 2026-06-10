@@ -6,6 +6,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Pre-fetch the local embedding model so the semantic tier never downloads at
+# runtime — makes container (re)creates self-contained and avoids first-run delays.
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
 
 COPY src/ ./src/
 ENV PYTHONPATH=/app/src \
