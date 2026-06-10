@@ -245,3 +245,10 @@ mark { background: #ffe08a; color: #1f2430; }
 /* Semantic Search: show the build state inline + dim while it's unavailable */
 #ss-status { color: var(--text-faint); font-style: italic; }
 #semantic-search-label:has(input:disabled) { opacity: .65; }
+
+/* Tame Pico's ~16px base font on app chrome so everything matches the ~12.5–13px UI.
+   Untamed buttons/inputs and the chat status text were inheriting Pico's large default. */
+button, input, select, textarea { font-size: 13px; }
+#chat-building { font-size: 12.5px; }
+#chat-input { font-size: 13px; }
+#chat-form button { font-size: 13px; }
