@@ -53,7 +53,9 @@ ATTACHMENT_TOOL = {
             },
             "limit": {
                 "type": "integer",
-                "description": "Max files to return in the sample (default 50, max 200).",
+                "description": ("Max files to return in the sample (default 200, max 500). "
+                                "When the user wants the full list, pass a limit at least as "
+                                "large as total_matches so you can list them all."),
             },
         },
     },
@@ -89,6 +91,11 @@ def iter_answer(generate: Callable[[str, List[Dict]], Iterator[str]],
         yield chunk
 
 
+# Generous output ceiling: a request like "list all 130 audio files" produces a long
+# table that 1024 tokens truncated mid-way (~24 rows).
+MAX_TOKENS = 8192
+
+
 def make_anthropic_generate(client, model: str, tools: Optional[List[Dict]] = None,
                             run_tool: Optional[Callable[[str, Dict], str]] = None,
                             max_rounds: int = 6):
@@ -100,7 +107,7 @@ def make_anthropic_generate(client, model: str, tools: Optional[List[Dict]] = No
     def generate(system: str, messages: List[Dict]) -> Iterator[str]:
         convo = list(messages)
         for round_no in range(max_rounds):
-            kwargs = dict(model=model, max_tokens=1024, system=system, messages=convo)
+            kwargs = dict(model=model, max_tokens=MAX_TOKENS, system=system, messages=convo)
             if tools:
                 kwargs["tools"] = tools
             emitted = False

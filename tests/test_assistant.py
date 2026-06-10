@@ -87,7 +87,7 @@ def test_make_anthropic_generate_uses_streaming():
     assert out == "abc"
     assert client.messages.kwargs["model"] == "claude-sonnet-4-6"
     assert client.messages.kwargs["system"] == "SYS"
-    assert client.messages.kwargs["max_tokens"] == 1024
+    assert client.messages.kwargs["max_tokens"] == assistant.MAX_TOKENS
     assert "tools" not in client.messages.kwargs   # no tools passed -> plain call
 
 

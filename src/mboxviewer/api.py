@@ -250,11 +250,11 @@ def create_app(settings, index_in_background=True):
         if name != "query_attachments":
             return json.dumps({"error": f"unknown tool {name}"})
         ti = tool_input or {}
-        limit = ti.get("limit") or 50
+        limit = ti.get("limit") or 200
         try:
-            limit = max(1, min(int(limit), 200))
+            limit = max(1, min(int(limit), 500))
         except (TypeError, ValueError):
-            limit = 50
+            limit = 200
         cat = ti.get("category")
         fname = ti.get("filename_contains")
         sender = ti.get("sender_contains")
