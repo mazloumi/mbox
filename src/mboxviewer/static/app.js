@@ -48,6 +48,7 @@ async function loadCapabilities() {
     document.getElementById("semantic-search-label").hidden = false;
     refreshSemanticState();
   }
+  restoreViewFromHash();   // now that tab availability is known, honor #ask
 }
 
 // Human-readable build progress straight from /api/capabilities.semantic.
@@ -674,6 +675,7 @@ function setMode(mode) {
   updateDownloadAll();
   refreshLeft();
   reload();
+  location.hash = mode;   // reflect the view in the URL so a reload restores it
 }
 
 function exitChat() {
@@ -687,6 +689,7 @@ document.getElementById("tab-ask").addEventListener("click", () => {
   appEl.classList.add("chat-mode");
   refreshSemanticState();
   document.getElementById("chat-input").focus();
+  location.hash = "ask";
 });
 
 // Tabs only switch views; collapse is a separate control (below).
@@ -694,12 +697,26 @@ tabFolders.addEventListener("click", () => {
   exitChat();
   if (browseMode !== "folders") setMode("folders");
   else { tabFolders.classList.add("active"); tabFiles.classList.remove("active"); }
+  location.hash = "folders";
 });
 tabFiles.addEventListener("click", () => {
   exitChat();
   if (browseMode !== "files") setMode("files");
   else { tabFiles.classList.add("active"); tabFolders.classList.remove("active"); }
+  location.hash = "files";
 });
+
+// Restore the view from the URL hash (#files / #ask) on load so a reload returns here.
+function restoreViewFromHash() {
+  const h = (location.hash || "").replace(/^#/, "");
+  if (h === "files" && browseMode !== "files") {
+    tabFiles.click();
+  } else if (h === "ask") {
+    const t = document.getElementById("tab-ask");
+    if (!t.hidden && !appEl.classList.contains("chat-mode")) t.click();
+  }
+  // "folders" (or empty) is the default — nothing to do.
+}
 
 // Dedicated collapse/expand control for the left sidebar (persisted, restored on load).
 document.getElementById("sidebar-toggle").addEventListener("click", () => {
@@ -876,4 +893,5 @@ archiveBtn.addEventListener("click", async () => {
 pollArchive();  // reflect any in-progress/finished archive on load
 
 loadCapabilities();
+restoreViewFromHash();   // restore #files immediately (idempotent; #ask handled after caps load)
 pollStatus();
