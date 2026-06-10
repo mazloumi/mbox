@@ -789,31 +789,38 @@ function appendBubble(role, html) {
   return div;
 }
 
-// Turn `[#123]` citation markers found in text nodes into clickable chips.
-// Done on the DOM (not the HTML string) so markers inside tags/attributes are untouched.
+// Turn citation markers into clickable chips. Handles a single `[#123]` and a
+// grouped `[#123, #456]` (the model often bundles multiple ids in one bracket) —
+// each id becomes its own chip. Done on the DOM (not the HTML string) so markers
+// inside tags/attributes are untouched.
 function linkifyCitations(root) {
-  const re = /\[#(\d+)\]/g;
+  // A bracketed group of one-or-more `#<id>` separated by commas/whitespace.
+  const groupRe = /\[\s*#\d+(?:\s*,?\s*#\d+)*\s*\]/g;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const targets = [];
   let node;
   while ((node = walker.nextNode())) {
-    re.lastIndex = 0;
-    if (re.test(node.nodeValue)) targets.push(node);
+    groupRe.lastIndex = 0;
+    if (groupRe.test(node.nodeValue)) targets.push(node);
   }
   for (const t of targets) {
     const s = t.nodeValue;
     const frag = document.createDocumentFragment();
     let last = 0, m;
-    re.lastIndex = 0;
-    while ((m = re.exec(s))) {
+    groupRe.lastIndex = 0;
+    while ((m = groupRe.exec(s))) {
       if (m.index > last) frag.appendChild(document.createTextNode(s.slice(last, m.index)));
-      const a = document.createElement("a");
-      a.href = "#";
-      a.className = "cite";
-      a.dataset.id = m[1];
-      a.textContent = "#" + m[1];
-      frag.appendChild(a);
-      last = re.lastIndex;
+      const ids = m[0].match(/#\d+/g);   // e.g. ["#123", "#456"]
+      ids.forEach((tok, i) => {
+        if (i > 0) frag.appendChild(document.createTextNode(", "));
+        const a = document.createElement("a");
+        a.href = "#";
+        a.className = "cite";
+        a.dataset.id = tok.slice(1);
+        a.textContent = tok;
+        frag.appendChild(a);
+      });
+      last = m.index + m[0].length;
     }
     if (last < s.length) frag.appendChild(document.createTextNode(s.slice(last)));
     t.parentNode.replaceChild(frag, t);
