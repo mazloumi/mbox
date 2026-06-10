@@ -552,7 +552,30 @@ function openEmailFromFile(mid) {
   openMessage(mid);
 }
 
-async function openMessage(id, allowRemote = false) {
+// Choose the attachment to auto-open when a citation points at a file-centric email,
+// so the user lands on the player/viewer instead of having to press Play/View.
+// Always opens clear "play/view" files (audio/video/PDF); for a lone attachment also
+// opens a previewable doc/sheet/image — but never auto-picks from a multi-attachment
+// email (e.g. a newsletter full of inline images) where the body is the point.
+function pickAutoOpen(atts) {
+  const direct = atts.find(a => {
+    const m = (a.mime || "").toLowerCase(), n = (a.filename || "").toLowerCase();
+    return m.startsWith("audio/") || m.startsWith("video/")
+      || /\.(mp3|m4a|wav|aac|ogg|oga|opus|flac|mp4|m4v|mov|webm|mpg|mpeg)$/.test(n)
+      || m === "application/pdf" || n.endsWith(".pdf");
+  });
+  if (direct) return direct;
+  if (atts.length === 1) {
+    const a = atts[0], m = (a.mime || "").toLowerCase(), n = (a.filename || "").toLowerCase();
+    const previewable = m.startsWith("image/") || isSpreadsheet(m, n) || m === "text/csv"
+      || /\.(docx?|rtf|odt|txt|csv|xlsx?|ods|pptx?|odp)$/.test(n)
+      || m.includes("officedocument") || m.includes("opendocument");
+    if (previewable) return a;
+  }
+  return null;
+}
+
+async function openMessage(id, allowRemote = false, autoOpenAttachment = false) {
   currentOpenId = id;
   showOnlyPane(readerBody);
   try {
@@ -580,6 +603,10 @@ async function openMessage(id, allowRemote = false) {
     readerBody.srcdoc = '<style>img[src=""], img:not([src]) { display: none }</style>' + m.body_html;
     const btn = document.getElementById("load-remote");
     if (btn) btn.onclick = () => openMessage(id, true);
+    if (autoOpenAttachment) {
+      const pick = pickAutoOpen(m.attachments || []);
+      if (pick) openFile(id, pick.idx, pick.filename, pick.mime, pick.size);
+    }
   } catch (err) {
     readerHeader.innerHTML = `<div class="meta">Failed to open message: ${escapeHtml(String(err.message))}</div>`;
     readerAtt.innerHTML = "";
@@ -903,7 +930,7 @@ document.getElementById("chat-log").addEventListener("click", (ev) => {
 function openCitedMessage(id) {
   appEl.classList.add("chat-reading");
   document.getElementById("reader-close").hidden = false;
-  openMessage(id);
+  openMessage(id, false, true);   // auto-open the file/player when the email is file-centric
 }
 
 document.getElementById("reader-close").addEventListener("click", () => {
