@@ -44,38 +44,58 @@ async function loadCapabilities() {
     caps = await (await fetch("/api/capabilities")).json();
   } catch (e) { return; }
   if (caps.assistant.enabled) document.getElementById("tab-ask").hidden = false;
-  if (caps.semantic.enabled) document.getElementById("search-mode").hidden = false;
+  if (caps.semantic.enabled) {
+    document.getElementById("semantic-search-label").hidden = false;
+    refreshSemanticState();
+  }
 }
 
+// Human-readable build progress straight from /api/capabilities.semantic.
+function semanticProgressText(s) {
+  if (s.state === "error") return "⚠️ Knowledge base build failed — check the server logs.";
+  if (s.state === "chunking") {
+    const pct = s.messages_total ? Math.round(s.messages_done / s.messages_total * 100) : 0;
+    return "Building knowledge base — reading messages "
+      + `${s.messages_done.toLocaleString()} / ${s.messages_total.toLocaleString()} (${pct}%)`;
+  }
+  if (s.state === "embedding") {
+    const pct = s.vectors_total ? Math.round(s.vectors_done / s.vectors_total * 100) : 0;
+    return "Building knowledge base — embedding "
+      + `${s.vectors_done.toLocaleString()} / ${s.vectors_total.toLocaleString()} vectors (${pct}%)`;
+  }
+  return "Preparing knowledge base…";
+}
+
+let _semPolling = false;          // ensure a single capabilities poll loop
 function refreshSemanticState() {
-  if (!caps.semantic.enabled) return;
-  fetch("/api/capabilities").then(r => r.json()).then(c => {
-    caps = c;
-    const modeBtn = document.getElementById("search-mode");
-    if (!caps.semantic.ready) {
-      const v = caps.semantic.vectors_total
-        ? Math.round(caps.semantic.vectors_done / caps.semantic.vectors_total * 100) : 0;
-      modeBtn.title = `Building knowledge base… ${v}%`;
-    } else {
-      modeBtn.title = "Toggle semantic search";
-    }
-    const building = document.getElementById("chat-building");
-    if (building) {
-      building.hidden = caps.semantic.ready;
-      if (!caps.semantic.ready) {
-        const v = caps.semantic.vectors_total
-          ? Math.round(caps.semantic.vectors_done / caps.semantic.vectors_total * 100) : 0;
-        building.textContent = `Building knowledge base… ${v}%`;
+  if (!caps.semantic.enabled || _semPolling) return;
+  _semPolling = true;
+  const tick = () => {
+    fetch("/api/capabilities").then(r => r.json()).then(c => {
+      caps = c;
+      const s = caps.semantic;
+      const cb = document.getElementById("semantic-search");
+      const label = document.getElementById("semantic-search-label");
+      if (cb && label) {
+        cb.disabled = !s.ready;
+        label.title = s.ready
+          ? "Rank results by meaning using local AI (instead of keyword matching)"
+          : semanticProgressText(s);
       }
-    }
-    if (!caps.semantic.ready) setTimeout(refreshSemanticState, 3000);
-  });
+      const building = document.getElementById("chat-building");
+      if (building) {
+        building.hidden = s.ready;
+        if (!s.ready) building.textContent = semanticProgressText(s);
+      }
+      if (!s.ready && s.state !== "error") setTimeout(tick, 3000);
+      else _semPolling = false;
+    }).catch(() => { _semPolling = false; });
+  };
+  tick();
 }
 
-document.getElementById("search-mode").addEventListener("click", () => {
-  searchMode = searchMode === "keyword" ? "hybrid" : "keyword";
-  document.getElementById("search-mode").textContent =
-    searchMode === "hybrid" ? "Semantic" : "Keyword";
+document.getElementById("semantic-search").addEventListener("change", (e) => {
+  searchMode = e.target.checked ? "hybrid" : "keyword";
   reload();
 });
 
@@ -701,7 +721,7 @@ document.getElementById("chat-form").addEventListener("submit", async (e) => {
       if (!line.trim()) continue;
       const ev = JSON.parse(line);
       if (ev.type === "building") {
-        answerDiv.innerHTML = `Building knowledge base… ${ev.percent}%. Try again shortly.`;
+        answerDiv.textContent = semanticProgressText(caps.semantic) + " — ask again once it's ready.";
       } else if (ev.type === "sources") {
         sources = ev.sources;
       } else if (ev.type === "token") {
